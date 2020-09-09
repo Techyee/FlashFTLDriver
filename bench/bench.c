@@ -160,6 +160,94 @@ void bench_make_data(){
 	MS(&_m->benchTime);
 }
 
+void bench_make_data_pinned(int pin){
+	int idx=pin;
+	bench_meta *_meta=&_master->meta[idx];
+	bench_data *_d=&_master->datas[idx];
+	monitor * _m=&_master->m[idx];
+	_m->mark=idx;
+	_m->bech=_meta->number/(BENCHSETSIZE-1)+(_meta->number%(BENCHSETSIZE-1)?1:0);
+	_m->benchsetsize=(BENCHSETSIZE-1);
+	if(_meta->type==NOR){
+		printf("not fixed test!\n");
+		return;
+	}
+	printf("%d X %d = %d, answer=%lu\n",_m->bech,_m->benchsetsize,_m->bech*_m->benchsetsize,_meta->number);
+	if(_meta->type < VECTOREDRSET){
+		for(uint32_t i=0; i<_m->benchsetsize; i++){
+			_m->body[i]=(bench_value*)malloc(sizeof(bench_value)*_m->bech);
+		}
+	}
+
+	_m->n_num=0;
+	_m->r_num=0;
+	_m->empty=false;
+	_m->m_num=_meta->number;
+	_m->type=_meta->type;
+	uint32_t start=_meta->start;
+	uint32_t end=_meta->end;
+	switch(_meta->type){
+		case SEQGET:
+			seqget(start,end,_m);
+			break;
+		case SEQSET:
+			seqset(start,end,_m);
+			break;
+		case RANDGET:
+			randget(start,end,_m);
+			break;
+		case RANDRW:
+			randrw(start,end,_m);
+			break;
+		case SEQRW:
+			seqrw(start,end,_m);
+			break;
+		case RANDSET:
+			randset(start,end,_m);
+			break;
+		case MIXED:
+			mixed(start,end,50,_m);
+			break;
+		case FILLRAND:
+			fillrand(start,end,_m);
+			break;
+		case VECTOREDUNIQRSET:
+			vectored_unique_rset(start,end, _m);
+			break;
+		case VECTOREDSSET:
+			vectored_set(start,end, _m, true);
+			break;
+		case VECTOREDRSET:
+			vectored_set(start,end, _m, false);
+			break;
+		case VECTOREDRGET:
+			vectored_get(start,end, _m, false);
+			break;
+		case VECTOREDSGET:
+			vectored_get(start,end, _m, true);
+			break;
+		case VECTOREDRW:
+			vectored_rw(start,end, _m, false);
+			break;
+#ifndef KVSSD
+		case SEQLATENCY:
+			seq_latency(start,end,50,_m);
+			break;
+		case RANDLATENCY:
+			rand_latency(start,end,50,_m);
+			break;
+#endif
+		default:
+			printf("making data failed\n");
+			break;
+	}
+	_d->read_cnt=_m->read_cnt;
+	_d->write_cnt=_m->write_cnt;
+	_m->m_num=_m->read_cnt+_m->write_cnt;
+	measure_init(&_m->benchTime);
+	MS(&_m->benchTime);
+}
+
 void bench_add(bench_type type, uint32_t start, uint32_t end, uint64_t number){
 	static int idx=0;
 	_master->meta[idx].start=start;

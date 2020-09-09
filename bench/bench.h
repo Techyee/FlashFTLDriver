@@ -139,6 +139,7 @@ int bench_set_params(int argc, char **argv,char **targv);
 bench_value* get_bench_ondemand();
 
 char *get_vectored_bench(uint32_t *mark);
+char *get_vectored_bench_pinned(uint32_t *mark, int pin); 
 char *get_vectored_one_command(uint8_t type, uint32_t tid, uint32_t key);
 
 #ifdef CDF
@@ -167,4 +168,5 @@ void vectored_unique_rset(uint32_t, uint32_t, monitor*);
 int my_itoa(uint32_t key, char **_target, char *buf);
 
 void bench_make_data();
+void bench_make_data_pinned(int pin);
 void *bench_transaction_end_req(void *);

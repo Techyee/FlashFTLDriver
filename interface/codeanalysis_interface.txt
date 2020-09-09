@@ -1,0 +1,45 @@
+top down method analyze
+
+remember that master_processor mp is initialized at the top
+
+1. inf_init -> interface initialization
+    initialize flying and condition lock
+    initialize processors(currently 1 processor)
+    initialize queue allocated for each processors
+
+    queue includes req_q, req_rq, retry_q
+    qmanager is redblack tree.
+
+    initialize processor thread, each of them initiates p_main
+
+    layer_info_mapping : assign mp's functions with defined ones.
+
+    1-1. p_main
+    inf_req pointer made
+    _this points to mp.processor
+    thread_name specified
+
+    goes into while loop
+
+    functions in atomic way
+    -> cl_grap for atomicity, 
+    -> use get_next_request function to get I/O request.
+    -> cl_release when there's no request(continue)
+    -> if request exist, initiate algorithm layer function with inf_req
+
+    repeat this while loop until there's stopflag.
+
+
+2. bench_init -> _master and bitmap is initialized.
+    what is master?
+    I think it's place for benchmark system meatadata
+    includes monitor, bench_meta, bench_data, lower_info
+
+
+3. bench_add -> static int idx 선언
+    마스터 구조체에 밴치마크 정보를 입력하는 과정.
+
+4. 이후 get_bench()를 통해서 value를 따오고, 따온 value를 계속해서 inf_make_req를 통해 리퀘스트를 만들어서 내려보낸다.
+
+4-1. get_bench
+

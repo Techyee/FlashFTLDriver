@@ -11,6 +11,10 @@ extern int KEYLENGTH;
 void bench_vectored_configure(){
 	_master->trans_configure.request_size=REQSIZE;
 	_master->trans_configure.request_num_per_command=(MAXBUFSIZE-TXNHEADERSIZE)/_master->trans_configure.request_size;
+	/*!!! override the parameter "req_num_per_command" to set request vector size as 1 !!!*/
+	_master->trans_configure.request_num_per_command = 1;
+	printf("current request size is %d\n",_master->trans_configure.request_size);
+	printf("current request per command is %d(currently overrided)\n",_master->trans_configure.request_num_per_command);
 }
 
 char *get_vectored_bench(uint32_t *mark){
@@ -59,6 +63,46 @@ char *get_vectored_bench(uint32_t *mark){
 	return res->buf;
 }
 
+char* get_vectored_bench_pinned(uint32_t *mark, int pin){
+	/*pin the original get_vectored_bench only to certain benchmark.*/
+	static int transaction_id=0;
+	static int now_transaction_req_cnt=0;
+	static uint64_t real_req_num=0;
+	//pin the monitoring structure *m.
+	monitor *m = &_master->m[pin];
+	if(m->command_num != 0 && m->command_issue_num==m->command_num){
+		//do not switch over next bench. just end.
+		free(m->tbody);
+		while(!bench_is_finish_n(pin)){}
+		printf("\rtesting...... [100%%] done!\n");
+		printf("\n");
+		return NULL;
+	}
+	if(m->command_issue_num==0){
+		bench_make_data_pinned(pin);
+		real_req_num=0;
+	}
+	*mark = _master->n_num;
+
+#ifdef PROGRESS
+	if(m->command_issue_num % (m->command_num/100)==0){
+		printf("\r testing...... [%.2lf%%]",(double)(m->command_issue_num)/(m->command_num/100));
+		fflush(stdout);
+	}
+#endif
+
+	transaction_bench_value *res;
+	res=&m->tbody[real_req_num++];
+	if(!res->buf) return NULL;
+	*(uint32_t*)&res->buf[0]=transaction_id;
+
+	now_transaction_req_cnt++;
+
+	m->command_issue_num++;
+	m->n_num++;
+	return res->buf;
+
+}
 void vectored_set(uint32_t start, uint32_t end, monitor* m, bool isseq){
 	uint32_t request_per_command=_master->trans_configure.request_num_per_command;
 	uint32_t number_of_command=(m->m_num)/request_per_command;

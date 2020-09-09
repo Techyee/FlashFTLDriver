@@ -44,6 +44,8 @@ typedef struct vectored_request{
 	uint32_t mark;
 	void* (*end_req)(void*);
 	void* origin_req;
+	struct timeval inf_start;
+	struct timeval inf_end;
 } vec_request;
 
 struct request {

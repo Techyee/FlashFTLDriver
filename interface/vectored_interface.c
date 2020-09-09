@@ -10,8 +10,9 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <stdio.h>
-
+#include <unistd.h>
 extern master_processor mp;
+extern bool force_write_start;
 extern tag_manager *tm;
 static int32_t flying_cnt = QDEPTH;
 static pthread_mutex_t flying_cnt_lock=PTHREAD_MUTEX_INITIALIZER; 
@@ -171,7 +172,7 @@ void *vectored_main(void *__input){
 		}else{
 			uint32_t size=vec_req->size;
 			if(size!=0){
-				printf("break!\n");
+			//	printf("break!\n");
 			}
 			for(uint32_t i=0; i<size; i++){
 				/*retry queue*/
@@ -232,4 +233,48 @@ bool vectored_end_req (request * const req){
 			preq->end_req((void*)preq);	
 	}
 	return true;
+}
+
+void* inf_main(void* arg){
+	
+	char* value;
+	uint32_t mark;
+	int exec_time_usec;
+	int bench_init_stage = 1;
+	int op_num = 10;
+	int cur_num = 0;
+	int period_usec = 500;
+	int elapsed_usec = 0;
+	
+	struct timeval rt_start;
+	struct timeval rt_end;
+	while(1){
+		//inf_make_req must be done in periodic manner.
+		
+		//interface body.	
+		gettimeofday(&rt_start,NULL);
+		value=get_vectored_bench_pinned(&mark, 0);
+		if(bench_init_stage == 1){//time for preparing bench data should not be counted.
+			gettimeofday(&rt_start,NULL);
+			bench_init_stage = 0;
+		}
+		if (value == NULL){
+			break;
+		}
+		inf_vector_make_req(value, bench_transaction_end_req, mark);
+		gettimeofday(&rt_end,NULL);
+		//!interface body
+		
+		elapsed_usec += (rt_end.tv_sec - rt_start.tv_sec)*1000000 + (rt_end.tv_usec - rt_start.tv_usec);
+		cur_num++;
+		if(cur_num == op_num){
+			usleep(period_usec - elapsed_usec);
+			cur_num = 0;
+			elapsed_usec = 0;
+		}
+	}
+	
+	printf("bench finish\n");
+	//while(!bench_is_finish()){}
+	return NULL;
 }

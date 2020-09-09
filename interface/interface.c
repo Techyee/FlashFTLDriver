@@ -623,6 +623,7 @@ bool inf_end_req( request * const req){
 	return true;
 }
 void inf_free(){
+	printf("entered inf_free\n");
 	bench_print();
 	bench_free();
 	mp.li->stop();

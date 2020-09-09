@@ -5,6 +5,7 @@
 
 uint32_t inf_vector_make_req(char *buf, void * (*end_req)(void*), uint32_t mark);
 void *vectored_main(void *);
+void *inf_main(void* arg);
 void assign_vectored_req(vec_request *txn);
 void release_each_req(request *req);
 #endif

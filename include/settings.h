@@ -73,7 +73,7 @@
 #endif
 
 #define interface_vector
-#define LPAGESIZE 4096
+#define LPAGESIZE (8*K)
 #define L2PGAP (PAGESIZE/LPAGESIZE)
 #define BLOCKSIZE (_PPB*PAGESIZE)
 #define _NOP (TOTALSIZE/PAGESIZE)
@@ -81,7 +81,7 @@
 #define _NOB (BPS*_NOS)
 #define _RNOS (REALSIZE/(_PPS*PAGESIZE))//real number of segment
 
-#define RANGE (SHOWINGSIZE/4/K)
+#define RANGE (SHOWINGSIZE/8/K)
 #define DEVFULL ((uint32_t)TOTALSIZE/LPAGESIZE)
 
 #define PARTNUM 2

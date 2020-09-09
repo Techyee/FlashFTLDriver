@@ -259,7 +259,7 @@ int seq_unpopulate_bit (struct blockmanager* bm, uint32_t ppa){
 	block_set *seg=&p->logical_segment[segment_idx];
 	seg->total_invalid_number++;
 */	
-	if(b->invalid_number>_PPB * L2PGAP){
+	if(b->invalid_number > _PPB * L2PGAP){
 		abort();
 	}
 	return res;

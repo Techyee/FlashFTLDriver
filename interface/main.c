@@ -32,6 +32,7 @@ int main(int argc,char* argv[]){
 		else if(value->type==FS_GET_T){
 			inf_make_req(value->type,value->key,NULL,value->length,value->mark);
 		}
+	usleep(100);	
 	}
 
 	inf_free();
