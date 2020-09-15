@@ -361,7 +361,6 @@ bench_value* get_bench(){
 }
 extern bool force_write_start;
 bool bench_is_finish_n(volatile int n){
-
 	if(_master->m[n].command_num){
 		if(_master->m[n].command_num <= _master->m[n].command_return_num+2){
 			if(_master->m[n].r_num==_master->m[n].m_num){

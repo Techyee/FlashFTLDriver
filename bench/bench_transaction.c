@@ -8,6 +8,9 @@ extern master *_master;
 
 extern int KEYLENGTH;
 
+//real_req_num for each benchmark
+uint64_t _g_real_req_num[2] = {0, };
+
 void bench_vectored_configure(){
 	_master->trans_configure.request_size=REQSIZE;
 	_master->trans_configure.request_num_per_command=(MAXBUFSIZE-TXNHEADERSIZE)/_master->trans_configure.request_size;
@@ -18,9 +21,9 @@ void bench_vectored_configure(){
 }
 
 char *get_vectored_bench(uint32_t *mark){
-	static int transaction_id=0;
-	static int now_transaction_req_cnt=0;
-	static uint64_t real_req_num=0;
+	int transaction_id=0;
+	int now_transaction_req_cnt=0;
+	uint64_t real_req_num=0;
 
 	monitor *m=&_master->m[_master->n_num];
 
@@ -67,22 +70,24 @@ char* get_vectored_bench_pinned(uint32_t *mark, int pin){
 	/*pin the original get_vectored_bench only to certain benchmark.*/
 	static int transaction_id=0;
 	static int now_transaction_req_cnt=0;
-	static uint64_t real_req_num=0;
 	//pin the monitoring structure *m.
 	monitor *m = &_master->m[pin];
 	if(m->command_num != 0 && m->command_issue_num==m->command_num){
+		printf("bench %d : comm_num is %d, entered finishing logic.\n",pin,m->command_num);
 		//do not switch over next bench. just end.
 		free(m->tbody);
 		while(!bench_is_finish_n(pin)){}
 		printf("\rtesting...... [100%%] done!\n");
 		printf("\n");
+		printf("bench %d is out!\n",pin);
 		return NULL;
 	}
 	if(m->command_issue_num==0){
 		bench_make_data_pinned(pin);
-		real_req_num=0;
+		_g_real_req_num[pin]=0;
 	}
-	*mark = _master->n_num;
+	//*mark = _master->n_num;
+	*mark = pin;
 
 #ifdef PROGRESS
 	if(m->command_issue_num % (m->command_num/100)==0){
@@ -92,7 +97,7 @@ char* get_vectored_bench_pinned(uint32_t *mark, int pin){
 #endif
 
 	transaction_bench_value *res;
-	res=&m->tbody[real_req_num++];
+	res=&m->tbody[_g_real_req_num[pin]++];
 	if(!res->buf) return NULL;
 	*(uint32_t*)&res->buf[0]=transaction_id;
 

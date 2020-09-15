@@ -19,7 +19,7 @@
 #include <limits.h>
 //#include <readline/readline.h>
 //#include <readline/history.h>
-#define LASYNC 0
+#define LASYNC 1
 pthread_mutex_t fd_lock;
 mem_seg *seg_table;
 #if (LASYNC==1)

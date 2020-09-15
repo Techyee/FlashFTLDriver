@@ -7,6 +7,7 @@
 #include "sem_lock.h"
 #include <stdarg.h>
 #include <pthread.h>
+#include "../interface/queue.h"
 
 typedef struct lower_info lower_info;
 typedef struct algorithm algorithm;
@@ -201,6 +202,18 @@ typedef struct mastersegment{
 	void *private_data;
 }__segment;
 
+typedef struct masterchip{ //a master structure for chip.
+	uint32_t chip_idx;
+	__block* blocks[BPC];
+	uint32_t now;
+	uint32_t max;
+	uint32_t used_page_num;
+	uint8_t invalid_blocks;
+	void *private_data;
+	queue *free_block_queue;
+}__chip;
+
+
 typedef struct ghostsegment{ //for gc
 	__block* blocks[BPS];
 	uint16_t now;
@@ -243,8 +256,17 @@ struct blockmanager{
 	lower_info *li;
 	void *private_data;
 	uint32_t assigned_page;
+
+	//registering my own functions.
+	__chip* (*get_chip) (struct blockmanager*, bool isreserve);
+	int (*get_page_num_pinned) (struct blockmanager*, __chip*);
 };
 
+typedef struct _task_info{
+	int bench_idx;
+	int num_op;
+	int period;
+}task_info;
 
 #define for_each_block(segs,block,idx)\
 	for(idx=0,block=segs->blocks[idx];idx<BPS; block=++idx>BPS?segs->blocks[idx-1]:segs->blocks[idx])

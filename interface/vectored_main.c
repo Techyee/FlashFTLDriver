@@ -26,22 +26,40 @@ extern int seq_padding_opt;
 MeasureTime write_opt_time[11];
 extern master_processor mp;
 extern uint64_t cumulative_type_cnt[LREQ_TYPE_NUM];
+
+
+
 int main(int argc,char* argv[]){
+
+	printf("[main.c line 34]checking params for TTC alloc, bpc: %d, _NOC %d\n",BPC, _NOC);
 	//int temp_cnt=bench_set_params(argc,argv,temp_argv);
 	inf_init(0,0,argc,argv);
 	bench_init();
 	bench_vectored_configure();
 //	bench_add(VECTOREDRSET,0,RANGE,RANGE);
 	bench_add(VECTOREDRSET,0,RANGE,RANGE/8);
+//	bench_add(VECTOREDRW,0,RANGE,RANGE/8);
 	//bench_add(VECTOREDRGET,0,RANGE/100*99,RANGE/100*99);
 	printf("range: %lu!\n",RANGE);
 	//bench_add(VECTOREDRW,0,RANGE,RANGE*2);
 
 	//allocate new thread for interface_main.
-	pthread_t pth;
-	int thread_id, status;
-	thread_id = pthread_create(&pth,NULL,inf_main,NULL);
-	pthread_join(pth,(void**)&status);
+	pthread_t pth[2];
+	int tid1, tid2, status;
+	task_info task1, task2;
+	
+	task1.bench_idx = 0;
+	task1.num_op = 10;
+	task1.period = 1000;
+
+	task2.bench_idx = 1;
+	task2.num_op = 10;
+	task2.period = 500;
+	
+	tid1 = pthread_create(&pth[0],NULL,inf_main,(void*)&task1);
+//	tid2 = pthread_create(&pth[1],NULL,inf_main,(void*)&task2);
+	pthread_join(pth[0],(void**)&status);
+//	pthread_join(pth[1],(void**)&status);
 	printf("thread is joined!!\n");
 	/*
 	char *value;

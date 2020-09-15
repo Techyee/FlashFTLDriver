@@ -3,7 +3,7 @@
 #include "../../include/data_struct/list.h"
 #include <stdlib.h>
 #include <stdint.h>
-
+#include <unistd.h>
 extern algorithm page_ftl;
 void invalidate_ppa(uint32_t t_ppa){
 	if(t_ppa<32768){
@@ -217,9 +217,10 @@ ppa_t get_ppa(KEYT *lbas){
 	}
 
 retry:
-	/*get a page by bm->get_page_num, when the active block doesn't have block, return UINT_MAX*/
+	/*get a page by bm->get_page_num, when the active segment doesn't have block, return UINT_MAX*/
 	res=page_ftl.bm->get_page_num(page_ftl.bm,p->active);
-
+	printf("[gc.c line 222] get_page_num %d\n",res);
+	usleep(50000);
 	if(res==UINT32_MAX){
 		page_ftl.bm->free_segment(page_ftl.bm, p->active);
 		p->active=page_ftl.bm->get_segment(page_ftl.bm,false); //get a new block
@@ -229,6 +230,25 @@ retry:
 	/*validate a page*/
 	validate_ppa(res,lbas);
 	//printf("assigned %u\n",res);
+	return res;
+}
+
+ppa_t get_ppa_pinned(KEYT *lbas){
+	//imagine a task is pinned on chip 1~4.
+	uint32_t res;
+	static uint32_t cnt = 0;
+	cnt++;
+	pm_body *p = (pm_body*)page_ftl.algo_body;
+
+	//get a page by newly created get_page_num_pinned.
+	res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives);
+	//if a page is not available, get next chip.
+	if(res == UINT32_MAX){
+		printf("no more clusterfucking free pages...");
+		abort();
+	}
+
+	validate_ppa(res,lbas);
 	return res;
 }
 

@@ -51,9 +51,9 @@
 #elif defined(SLC)
 
 #define GIGAUNIT 8L
-#define OP 70
+#define OP 0
 #define SHOWINGSIZE (GIGAUNIT * G)
-#define TOTALSIZE (SHOWINGSIZE + (SHOWINGSIZE/100*(100-OP)))
+#define TOTALSIZE (SHOWINGSIZE + SHOWINGSIZE)
 #define REALSIZE (512L*G)
 #define DEVSIZE (64L * G)
 #define PAGESIZE (8*K)
@@ -80,6 +80,12 @@
 #define _NOS (TOTALSIZE/(_PPS*PAGESIZE))
 #define _NOB (BPS*_NOS)
 #define _RNOS (REALSIZE/(_PPS*PAGESIZE))//real number of segment
+
+//defs for chip-level allocation.
+#define CHN 4
+#define WAY 4
+#define _NOC (CHN*WAY)
+#define BPC (_NOB/_NOC)
 
 #define RANGE (SHOWINGSIZE/8/K)
 #define DEVFULL ((uint32_t)TOTALSIZE/LPAGESIZE)

@@ -3,25 +3,32 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <limits.h>
-
+#include <unistd.h>
 extern algorithm page_ftl;
 
 void page_map_create(){
 	pm_body *p=(pm_body*)calloc(sizeof(pm_body),1);
+
+	//initialize l-to-p mapping with unit32_t values.
 	p->mapping=(uint32_t*)malloc(sizeof(uint32_t)*_NOP*L2PGAP);
 	for(int i=0;i<_NOP*L2PGAP; i++){
 		p->mapping[i]=UINT_MAX;
 	}
-	
+	//!finished creation.
+ 
+	//alloc ptr to target segments.
 	p->reserve=page_ftl.bm->get_segment(page_ftl.bm,true); //reserve for GC
 	p->active=page_ftl.bm->get_segment(page_ftl.bm,false); //now active block for inserted request.
+	//!alloc
+	p->chip_actives=page_ftl.bm->get_chip(page_ftl.bm,false);
+
 	page_ftl.algo_body=(void*)p; //you can assign your data structure in algorithm structure
 }
 
 uint32_t page_map_assign(KEYT* lba){
 	uint32_t res=0;
 
-	res=get_ppa(lba);
+	res=get_ppa_pinned(lba);
 	pm_body *p=(pm_body*)page_ftl.algo_body;
 	for(uint32_t i=0; i<L2PGAP; i++){
 		KEYT t_lba=lba[i];

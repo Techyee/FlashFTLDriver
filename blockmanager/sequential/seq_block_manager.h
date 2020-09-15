@@ -12,6 +12,12 @@ typedef struct block_set{
 	void *hptr;
 }block_set;
 
+typedef struct chip_block_set{
+	uint32_t total_invalid_number;
+	__block *blocks[BPC];
+	void *hptr;
+}cblock_set;
+
 typedef struct seq_bm_private{
 	__block *seq_block;
 	block_set *logical_segment;
@@ -19,6 +25,13 @@ typedef struct seq_bm_private{
 	mh *max_heap;
 	uint32_t assigned_block;
 	uint32_t free_block;
+	
+	//my structures
+	cblock_set *logical_chip;
+	queue *free_logical_chip_q;
+	mh *max_heap_chip;
+	uint32_t assigned_block_per_chip;
+	int32_t free_block_per_chip;
 }sbm_pri;
 
 uint32_t seq_create (struct blockmanager*, lower_info *li);
@@ -44,4 +57,9 @@ int seq_pick_page_num(struct blockmanager* ,__segment *);
 
 uint32_t seq_map_ppa(struct blockmanager* , uint32_t lpa);
 void seq_free_segment(struct blockmanager *, __segment *);
+
+//my new functions.
+__chip* seq_get_chip (struct blockmanager* bm, bool isreserve);
+int seq_get_page_num_pinned(struct blockmanager* bm, __chip *c);
+
 #endif

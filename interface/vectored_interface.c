@@ -236,16 +236,19 @@ bool vectored_end_req (request * const req){
 }
 
 void* inf_main(void* arg){
-	
+	task_info* received = (task_info*)arg;
+	printf("recieved structure is %d, %d, %d\n",received->bench_idx,
+												received->num_op,
+												received->period);
 	char* value;
 	uint32_t mark;
 	int exec_time_usec;
 	int bench_init_stage = 1;
-	int op_num = 10;
+	int op_num = received->num_op;
 	int cur_num = 0;
-	int period_usec = 500;
+	int period_usec = received->period;
 	int elapsed_usec = 0;
-	
+	int bench_idx = received->bench_idx;
 	struct timeval rt_start;
 	struct timeval rt_end;
 	while(1){
@@ -253,7 +256,7 @@ void* inf_main(void* arg){
 		
 		//interface body.	
 		gettimeofday(&rt_start,NULL);
-		value=get_vectored_bench_pinned(&mark, 0);
+		value=get_vectored_bench_pinned(&mark, bench_idx);
 		if(bench_init_stage == 1){//time for preparing bench data should not be counted.
 			gettimeofday(&rt_start,NULL);
 			bench_init_stage = 0;
@@ -275,6 +278,6 @@ void* inf_main(void* arg){
 	}
 	
 	printf("bench finish\n");
-	//while(!bench_is_finish()){}
+	while(!bench_is_finish()){}
 	return NULL;
 }
