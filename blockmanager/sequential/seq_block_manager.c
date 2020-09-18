@@ -29,12 +29,17 @@ struct blockmanager seq_bm={
 	.pt_get_segment=NULL,
 	.pt_get_gc_target=NULL,
 	.pt_trim_segment=NULL,
+
 	//registering my own function.
 	.get_chip = seq_get_chip,
 	.get_page_num_pinned = seq_get_page_num_pinned
 };
 
 static uint32_t age=UINT_MAX;
+//a pointer for block in seq_get_page_num_pinned
+static __block *n[3] = {NULL, };
+//may change here afterward(according to task num)
+
 void seq_mh_swap_hptr(void *a, void *b){
 	block_set *aa=(block_set*)a;
 	block_set *bb=(block_set*)b;
@@ -61,6 +66,25 @@ int seq_get_cnt(void *a){
 	else res=aa->total_invalid_number;*/
 
 	return aa->total_invalid_number;
+}
+
+void block_mh_swap_hptr(void *a, void *b){
+	__block *aa=(__block*)a;
+	__block *bb=(__block*)b;
+
+	void *temp=aa->hptr;
+	aa->hptr=bb->hptr;
+	bb->hptr=temp;
+}
+
+void block_mh_assign_hptr(void *a, void *hn){
+	__block *aa=(__block*)a;
+	aa->hptr=hn;
+}
+
+int block_get_cnt(void *a){
+	__block *aa=(__block*)a;
+	return aa->invalid_number;
 }
 
 uint32_t seq_create (struct blockmanager* bm, lower_info *li){
@@ -90,6 +114,7 @@ uint32_t seq_create (struct blockmanager* bm, lower_info *li){
 		}
 		p->logical_segment[i].total_invalid_number=0;
 	}
+	//!init
 
 	//initializing chip based data structure.
 	glob_block_idx = 0;
@@ -105,10 +130,10 @@ uint32_t seq_create (struct blockmanager* bm, lower_info *li){
 
 	mh_init(&p->max_heap, _NOS, seq_mh_swap_hptr, seq_mh_assign_hptr, seq_get_cnt);
 	q_init(&p->free_logical_segment_q, _NOS);
-	//!!! mh functions should be reassigned.	
-	mh_init(&p->max_heap_chip, _NOC, seq_mh_swap_hptr, seq_mh_assign_hptr, seq_get_cnt);
+		
+	
 	q_init(&p->free_logical_chip_q, _NOC);
-	//!initing my heap&queue
+	//!initing my queue
 
 	for(uint32_t i=0; i<_NOS; i++){
 		q_enqueue((void*)&p->logical_segment[i], p->free_logical_segment_q);
@@ -120,6 +145,7 @@ uint32_t seq_create (struct blockmanager* bm, lower_info *li){
 		
 		p->free_block_per_chip++;
 	}
+
 	bm->private_data=(void*)p;
 	return 1;
 }
@@ -200,13 +226,19 @@ __chip* seq_get_chip (struct blockmanager* bm, bool isreserve){
 	//initialize and save available block queue.
 	q_init(&res->free_block_queue,BPC);
 	for(int i=0;i<BPC;i++){
-			printf("%d-th enqueue, this is block_num at enqueue: %d\n",i,free_block_set->blocks[i]->block_num);
-			printf("testing.. %d!!\n",free_block_set->blocks[64]->block_num);
 			q_enqueue(free_block_set->blocks[i],res->free_block_queue);
 	}
-	sleep(2);
+	
 	//!finish saving available block queue.
+	
+	//initialize the max_heap queue for
+	mh_init(&res->free_block_maxheap,BPC,block_mh_swap_hptr,block_mh_assign_hptr,block_get_cnt);
+	 
+	//move block pointer information to chip structure.
 	memcpy(res->blocks, free_block_set->blocks,sizeof(__block*)*BPC);
+	//reserve first block for GC.
+	res->reserved_block = (__block*)q_dequeue(res->free_block_queue);
+
 	res->now = 0;
 	res->max = BPC;
 	res->invalid_blocks = 0;
@@ -401,16 +433,24 @@ int seq_get_page_num(struct blockmanager* bm,__segment *s){
 	bm->assigned_page++;
 	return res;
 }
-int seq_get_page_num_pinned(struct blockmanager* bm, __chip *c){
-	static __block *n = NULL; 
-	__block *b = c->blocks[c->now];
+int seq_get_page_num_pinned(struct blockmanager* bm, __chip *c, int mark){
+	//!!n[mark] is a global masterblock pointer declared in sbm.c!!
 	
-	if((b->now == _PPB) || (n == NULL)) {//if current block is full	
-		n = (__block*)q_dequeue(c->free_block_queue);
-		c->now = n->block_num;
-		printf("block_num inside pinned:%d\n",n->block_num);
-		printf("c->now is %d, b->now is %d\n",c->now, b->now);
+	__block *b = c->blocks[c->now];
+
+	if((b->now == _PPB) || (n[mark] == NULL)) {//cur block full or init.
+		//dequeue from fb queue(if possible), 
+		//insert on max heap, 
+		//calc chip-internal index.	
+		n[mark] = (__block*)q_dequeue(c->free_block_queue);
+		if(n[mark] == NULL){//cannot reclaim (chip full)
+			printf("[bench %d] chip is full\n",mark);
+			return -1;
+		}
+		mh_insert_append(c->free_block_maxheap,(void*)n[mark]);
+		c->now = n[mark]->block_num % BPC;
 	}//update c->now.
+
 	int blocknumber = c->now;
 	b=c->blocks[blocknumber];
 	uint32_t page = b->now++;
@@ -418,7 +458,7 @@ int seq_get_page_num_pinned(struct blockmanager* bm, __chip *c){
 	if(page>_PPB) abort();
 	c->used_page_num++;
 	bm->assigned_page++;
-	printf("returning page number is %d\n",res);
+	//printf("result page num is %d\n",res);
 	return res;
 	
 

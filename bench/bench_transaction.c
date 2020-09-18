@@ -87,7 +87,7 @@ char* get_vectored_bench_pinned(uint32_t *mark, int pin){
 		_g_real_req_num[pin]=0;
 	}
 	//*mark = _master->n_num;
-	*mark = pin;
+	*mark = pin; //mark means an index of benchmark which is being used.
 
 #ifdef PROGRESS
 	if(m->command_issue_num % (m->command_num/100)==0){

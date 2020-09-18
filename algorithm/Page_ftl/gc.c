@@ -75,7 +75,7 @@ void new_do_gc(){
 	g_buffer.idx=0;
 	KEYT *lbas;
 	gv_idx=0;
-	uint32_t done_cnt=0;
+	uint32_t done_cnt=0; 
 	while(done_cnt!=_PPS){
 		gv=gv_array[gv_idx];
 		if(!gv->isdone){
@@ -233,21 +233,35 @@ retry:
 	return res;
 }
 
-ppa_t get_ppa_pinned(KEYT *lbas){
+ppa_t get_ppa_pinned(KEYT *lbas, int mark){
 	//imagine a task is pinned on chip 1~4.
 	uint32_t res;
 	static uint32_t cnt = 0;
 	cnt++;
 	pm_body *p = (pm_body*)page_ftl.algo_body;
-
-	//get a page by newly created get_page_num_pinned.
-	res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives);
-	//if a page is not available, get next chip.
-	if(res == UINT32_MAX){
-		printf("no more clusterfucking free pages...");
+retry:
+	//testing logic. simply partitioning according to mark.
+	if(mark == 0) res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[0], mark);
+	else if(mark == 1) res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[1], mark);
+	else if(mark == 2) res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[2], mark);
+	else{
+		printf("A mark of this bench is not registered!\n");
 		abort();
 	}
+	//get a page by newly created get_page_num_pinned.
 
+
+	//if a page is not available, go through garbage collection.
+	if(res == UINT32_MAX){
+		printf("no more clusterfucking free pages...");
+		/*GC*/
+		printf("let's find GC target!\n");
+		mh_construct(p->chip_actives_arr[mark]->free_block_maxheap);
+		__block* target = (__block*)mh_get_max(p->chip_actives_arr[mark]->free_block_maxheap);
+		printf("target found! invalid num : %d\n",target->invalid_number);
+		abort();
+		goto retry;
+	}
 	validate_ppa(res,lbas);
 	return res;
 }

@@ -101,9 +101,13 @@ uint32_t align_buffering(request *const req, KEYT key, value_set *value){
 		a_buffer.key[a_buffer.idx]=key;
 	}
 	a_buffer.idx++;
-
 	if(a_buffer.idx==L2PGAP){
+		//TTC allocation version must differentiate mapping!
+#ifdef TTCalloc
+		ppa_t ppa=page_map_assign_pinned(a_buffer.key, req->mark);
+#else
 		ppa_t ppa=page_map_assign(a_buffer.key);
+#endif
 		value_set *value=inf_get_valueset(NULL, FS_MALLOC_W, PAGESIZE);
 		for(uint32_t i=0; i<L2PGAP; i++){
 

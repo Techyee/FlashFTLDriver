@@ -248,6 +248,11 @@ void* inf_main(void* arg){
 	int cur_num = 0;
 	int period_usec = received->period;
 	int elapsed_usec = 0;
+	int max, min, avg, cnt;
+	cnt = 0;
+	max = -1;
+	min = -1;
+	avg = -1;
 	int bench_idx = received->bench_idx;
 	struct timeval rt_start;
 	struct timeval rt_end;
@@ -262,6 +267,7 @@ void* inf_main(void* arg){
 			bench_init_stage = 0;
 		}
 		if (value == NULL){
+			printf("bench idx %d entered break line.\n",bench_idx);
 			break;
 		}
 		inf_vector_make_req(value, bench_transaction_end_req, mark);
@@ -271,12 +277,25 @@ void* inf_main(void* arg){
 		elapsed_usec += (rt_end.tv_sec - rt_start.tv_sec)*1000000 + (rt_end.tv_usec - rt_start.tv_usec);
 		cur_num++;
 		if(cur_num == op_num){
-			usleep(period_usec - elapsed_usec);
+			if(period_usec > elapsed_usec)//if periodic release is possible,
+				usleep(period_usec - elapsed_usec);
+			
+			//make a statistics for elapsed time.
+			cnt++;
+			if (max == -1) max = elapsed_usec;
+			else if (max < elapsed_usec) max = elapsed_usec;
+
+			if (min == -1) min = elapsed_usec;
+			else if (min > elapsed_usec) min = elapsed_usec;
+
+			if (avg == -1) avg = elapsed_usec;
+			else avg = (avg*(cnt-1) + elapsed_usec) / cnt;
+			//!finished making statistics.
 			cur_num = 0;
 			elapsed_usec = 0;
 		}
 	}
-	
+	printf("make_req stats :: max : %d, min :%d, avg: %d\n",max,min,avg);
 	printf("bench finish\n");
 	while(!bench_is_finish()){}
 	return NULL;

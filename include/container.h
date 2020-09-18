@@ -8,6 +8,7 @@
 #include <stdarg.h>
 #include <pthread.h>
 #include "../interface/queue.h"
+#include "../include/data_struct/heap.h"
 
 typedef struct lower_info lower_info;
 typedef struct algorithm algorithm;
@@ -205,12 +206,14 @@ typedef struct mastersegment{
 typedef struct masterchip{ //a master structure for chip.
 	uint32_t chip_idx;
 	__block* blocks[BPC];
+	__block* reserved_block;
 	uint32_t now;
 	uint32_t max;
 	uint32_t used_page_num;
 	uint8_t invalid_blocks;
 	void *private_data;
 	queue *free_block_queue;
+	mh* free_block_maxheap;
 }__chip;
 
 
@@ -259,7 +262,7 @@ struct blockmanager{
 
 	//registering my own functions.
 	__chip* (*get_chip) (struct blockmanager*, bool isreserve);
-	int (*get_page_num_pinned) (struct blockmanager*, __chip*);
+	int (*get_page_num_pinned) (struct blockmanager*, __chip*, int mark);
 };
 
 typedef struct _task_info{
@@ -279,7 +282,6 @@ typedef struct _task_info{
 	#define for_each_page_in_seg(segs,page,bidx,pidx)\
 		for(bidx=0; bidx<BPS; bidx++)\
 			for(pidx=0, page=PPAMAKER(segs->blocks[bidx],pidx); pidx<_PPB; pidx++, page=PPAMAKER(segs->blocks[bidx],pidx))
-
 	#define for_each_page_in_seg_blocks(segs,block,page,bidx,pidx)\
 		for(bidx=0, block=segs->blocks[bidx]; bidx<BPS; bidx++, block=segs->blocks[(bidx!=BPS?bidx:BPS-1)])\
 			for(pidx=0, page=PPAMAKER(segs->blocks[bidx],pidx); pidx<_PPB; pidx++, page=PPAMAKER(segs->blocks[bidx],pidx))

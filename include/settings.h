@@ -73,6 +73,7 @@
 #endif
 
 #define interface_vector
+#define TTCalloc //comment this to disable chip partitioning
 #define LPAGESIZE (8*K)
 #define L2PGAP (PAGESIZE/LPAGESIZE)
 #define BLOCKSIZE (_PPB*PAGESIZE)
