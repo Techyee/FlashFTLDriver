@@ -21,4 +21,5 @@ uint32_t page_map_assign_pinned(KEYT *lba, int mark);
 uint32_t page_map_pick(uint32_t lba);
 uint32_t page_map_trim(uint32_t lba);
 uint32_t page_map_gc_update(KEYT* lba, uint32_t idx);
+uint32_t page_map_gc_update_chip(KEYT *lba, uint32_t idx, int chip_num);
 void page_map_free();

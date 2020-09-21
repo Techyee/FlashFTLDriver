@@ -262,7 +262,7 @@ struct blockmanager{
 
 	//registering my own functions.
 	__chip* (*get_chip) (struct blockmanager*, bool isreserve);
-	int (*get_page_num_pinned) (struct blockmanager*, __chip*, int mark);
+	int (*get_page_num_pinned) (struct blockmanager*, __chip*, int mark, bool isreserve);
 };
 
 typedef struct _task_info{

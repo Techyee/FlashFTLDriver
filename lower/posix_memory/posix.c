@@ -19,7 +19,7 @@
 #include <limits.h>
 //#include <readline/readline.h>
 //#include <readline/history.h>
-#define LASYNC 1
+#define LASYNC 0
 pthread_mutex_t fd_lock;
 mem_seg *seg_table;
 #if (LASYNC==1)
@@ -322,7 +322,6 @@ void posix_flying_req_wait(){
 }
 
 void* posix_trim_a_block(uint32_t _PPA, bool async){
-
 	uint32_t PPA=convert_ppa(_PPA);
 	if(PPA>_NOP){
 		printf("address error!\n");
@@ -331,7 +330,8 @@ void* posix_trim_a_block(uint32_t _PPA, bool async){
 	my_posix.req_type_cnt[TRIM]++;
 	static int cnt=0;
 	for(int i=0; i<_PPB; i++){
-		uint32_t t=PPA+i*PUNIT;
+		//uint32_t t=PPA+i*PUNIT;
+		uint32_t t=PPA+i;
 		if(!seg_table[t].storage){
 			//abort();
 		}

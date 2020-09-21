@@ -51,7 +51,85 @@ gc_value* send_req(uint32_t ppa, uint8_t type, value_set *value){
 	}
 	return res;
 }
+void chip_gc(int mark){ //!!hard coded for (PAGESIZE == LPAGESIZE) case!!
+	//find victim block
+	pm_body *p = (pm_body*)page_ftl.algo_body;
+	static int targ_block = 1;
+	mh_construct(p->chip_actives_arr[mark]->free_block_maxheap);
+	__block* target = (__block*)mh_get_max(p->chip_actives_arr[mark]->free_block_maxheap);
+	//__block* target = p->chip_actives_arr[mark]->blocks[targ_block];
+	//targ_block = (targ_block + 1) % BPC;
+	printf("target block grabbed %d\n",target->block_num);
+	//params
+	__block* reserved;
+	gc_value **gv_array = (gc_value**)malloc(sizeof(gc_value*)*_PPB);
+	blockmanager *bm=page_ftl.bm;
+	align_gc_buffer g_buffer;
+	gc_value *gv;
+	uint32_t page;
+	uint32_t pidx;
+	uint32_t res;
+	uint32_t gv_idx = 0;
+	page = target->block_num * _PPB;
+	printf("target : %d, cur res: %d\n",target->block_num,
+	p->chip_actives_arr[mark]->reserved_block->block_num);
 
+	int valid_cnt = 0;
+	int read_cnt = 0;
+	for(pidx=0;pidx != _PPB;pidx++){
+		if(bm->is_valid_page(bm,page)){
+			gv=send_req(page,GCDR,NULL);
+			gv_array[gv_idx++] = gv;
+			valid_cnt++;
+		}
+		page++;
+		read_cnt++;
+	}
+	printf("valid : %d, read : %d\n",valid_cnt,read_cnt);
+	//successfully sent req for gc_read.
+
+	
+	uint32_t cur_gv_idx = 0;
+	uint32_t done_cnt = 0;
+	KEYT *lbas;
+	while(done_cnt != gv_idx){
+		
+		//copy value and address on buffer.
+		gv = gv_array[cur_gv_idx];
+		if(!gv->isdone){
+			goto next_idx;
+		}
+		lbas = (KEYT*)bm->get_oob(bm,gv->ppa);
+		memcpy(&g_buffer.value,gv->value->value,PAGESIZE);
+		g_buffer.key[0] = lbas[0];
+		//!copy
+		res = page_map_gc_update_chip(g_buffer.key, L2PGAP,mark);
+		validate_ppa(res,g_buffer.key);
+		send_req(res,GCDW,inf_get_valueset(g_buffer.value,FS_MALLOC_W,PAGESIZE));
+		done_cnt++;
+		//send gc write req.
+		
+		inf_free_valueset(gv->value,FS_MALLOC_R);
+		free(gv);
+		//return memory.
+next_idx:
+		cur_gv_idx = (cur_gv_idx+1) % gv_idx;
+	}
+	
+	//trim target block.
+	target->invalid_number = 0;
+	target->now = 0;
+	memset(target->bitset,0,_PPB/8);
+	memset(target->oob_list,0,sizeof(target->oob_list));
+	page_ftl.li->trim_a_block(target->block_num*_PPB,ASYNC);
+	
+	//queue manipulation.
+	reserved = p->chip_actives_arr[mark]->reserved_block;
+	p->chip_actives_arr[mark]->reserved_block = target;
+	q_enqueue(reserved,p->chip_actives_arr[mark]->free_block_queue);
+	mh_insert_append(p->chip_actives_arr[mark]->free_block_maxheap,(void*)target);
+	
+}
 void new_do_gc(){
 	/*this function return a block which have the most number of invalidated page*/
 	__gsegment *target=page_ftl.bm->get_gc_target(page_ftl.bm);
@@ -69,6 +147,7 @@ void new_do_gc(){
 	for_each_page_in_seg(target,page,bidx,pidx){
 		//this function check the page is valid or not
 		gv=send_req(page,GCDR,NULL);
+		
 		gv_array[gv_idx++]=gv;
 	}
 
@@ -98,7 +177,6 @@ void new_do_gc(){
 		}
 
 		done_cnt++;
-
 		inf_free_valueset(gv->value, FS_MALLOC_R);
 		free(gv);
 next:
@@ -219,7 +297,6 @@ ppa_t get_ppa(KEYT *lbas){
 retry:
 	/*get a page by bm->get_page_num, when the active segment doesn't have block, return UINT_MAX*/
 	res=page_ftl.bm->get_page_num(page_ftl.bm,p->active);
-	printf("[gc.c line 222] get_page_num %d\n",res);
 	usleep(50000);
 	if(res==UINT32_MAX){
 		page_ftl.bm->free_segment(page_ftl.bm, p->active);
@@ -239,11 +316,12 @@ ppa_t get_ppa_pinned(KEYT *lbas, int mark){
 	static uint32_t cnt = 0;
 	cnt++;
 	pm_body *p = (pm_body*)page_ftl.algo_body;
+
 retry:
 	//testing logic. simply partitioning according to mark.
-	if(mark == 0) res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[0], mark);
-	else if(mark == 1) res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[1], mark);
-	else if(mark == 2) res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[2], mark);
+	if(mark == 0) res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[0], mark, false);
+	else if(mark == 1) res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[1], mark, false);
+	else if(mark == 2) res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[2], mark, false);
 	else{
 		printf("A mark of this bench is not registered!\n");
 		abort();
@@ -253,13 +331,8 @@ retry:
 
 	//if a page is not available, go through garbage collection.
 	if(res == UINT32_MAX){
-		printf("no more clusterfucking free pages...");
-		/*GC*/
-		printf("let's find GC target!\n");
-		mh_construct(p->chip_actives_arr[mark]->free_block_maxheap);
-		__block* target = (__block*)mh_get_max(p->chip_actives_arr[mark]->free_block_maxheap);
-		printf("target found! invalid num : %d\n",target->invalid_number);
-		abort();
+		
+		chip_gc(mark);
 		goto retry;
 	}
 	validate_ppa(res,lbas);

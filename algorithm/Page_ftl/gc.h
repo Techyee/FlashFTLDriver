@@ -18,6 +18,5 @@ void validate_ppa(uint32_t t_ppa, KEYT *lbas);
 ppa_t get_ppa(KEYT* lba);
 ppa_t get_ppa_pinned(KEYT* lba, int mark);
 void do_gc();
-
-
+void chip_gc(int mark);
 void *page_gc_end_req(algo_req *input);

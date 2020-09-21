@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 extern bb_checker checker;
+extern algorithm page_ftl;
 struct blockmanager seq_bm={
 	.create=seq_create,
 	.destroy=seq_destroy,
@@ -35,9 +36,11 @@ struct blockmanager seq_bm={
 	.get_page_num_pinned = seq_get_page_num_pinned
 };
 
-static uint32_t age=UINT_MAX;
-//a pointer for block in seq_get_page_num_pinned
-static __block *n[3] = {NULL, };
+static uint32_t age = UINT_MAX;
+
+//masterblock pointers for block in seq_get_page_num_pinned
+static __block *n[CHN*WAY] = {NULL, };
+static __block *reserved[CHN*WAY] = {NULL, };
 //may change here afterward(according to task num)
 
 void seq_mh_swap_hptr(void *a, void *b){
@@ -142,7 +145,6 @@ uint32_t seq_create (struct blockmanager* bm, lower_info *li){
 
 	for(uint32_t i=0;i<_NOC;i++){
 		q_enqueue((void*)&p->logical_chip[i],p->free_logical_chip_q);
-		
 		p->free_block_per_chip++;
 	}
 
@@ -231,14 +233,16 @@ __chip* seq_get_chip (struct blockmanager* bm, bool isreserve){
 	
 	//!finish saving available block queue.
 	
-	//initialize the max_heap queue for
+	//initialize the max_heap queue
 	mh_init(&res->free_block_maxheap,BPC,block_mh_swap_hptr,block_mh_assign_hptr,block_get_cnt);
-	 
+	for(int i=0;i<BPC;i++){
+		mh_insert_append(res->free_block_maxheap,free_block_set->blocks[i]);
+	}
 	//move block pointer information to chip structure.
 	memcpy(res->blocks, free_block_set->blocks,sizeof(__block*)*BPC);
 	//reserve first block for GC.
 	res->reserved_block = (__block*)q_dequeue(res->free_block_queue);
-
+	printf("dequeued block num is %d\n",res->reserved_block->block_num);
 	res->now = 0;
 	res->max = BPC;
 	res->invalid_blocks = 0;
@@ -433,35 +437,46 @@ int seq_get_page_num(struct blockmanager* bm,__segment *s){
 	bm->assigned_page++;
 	return res;
 }
-int seq_get_page_num_pinned(struct blockmanager* bm, __chip *c, int mark){
+int seq_get_page_num_pinned(struct blockmanager* bm, __chip *c, int mark, bool isreserve){
 	//!!n[mark] is a global masterblock pointer declared in sbm.c!!
 	
 	__block *b = c->blocks[c->now];
+	int reset = 0;
+	if(!isreserve){
+		if((b->now == _PPB) || (n[mark] == NULL)) {//cur block full or init.
+			//dequeue from fb queue(if possible), 
+			//insert on max heap, 
+			//calc chip-internal index.	
+			n[mark] = (__block*)q_dequeue(c->free_block_queue);
+			if(n[mark] == NULL){//cannot reclaim (chip full)
+				printf("[bench %d] chip is full\n",mark);
+				n[mark] = NULL;
+				return -1;
+			}
+			
+			c->now = n[mark]->block_num % BPC;
+		}//update c->now.
+	}
 
-	if((b->now == _PPB) || (n[mark] == NULL)) {//cur block full or init.
-		//dequeue from fb queue(if possible), 
-		//insert on max heap, 
-		//calc chip-internal index.	
-		n[mark] = (__block*)q_dequeue(c->free_block_queue);
-		if(n[mark] == NULL){//cannot reclaim (chip full)
-			printf("[bench %d] chip is full\n",mark);
-			return -1;
+	else if(isreserve){
+		
+		if(reserved[mark] == NULL){reset = 1;}
+		if((reserved[mark] != NULL) && (reserved[mark]->now == _PPB)){reset = 1;}
+		
+		if(reset == 1){
+			reserved[mark] = c->reserved_block;
+			c->now = reserved[mark]->block_num  % BPC;
 		}
-		mh_insert_append(c->free_block_maxheap,(void*)n[mark]);
-		c->now = n[mark]->block_num % BPC;
-	}//update c->now.
-
+	}
 	int blocknumber = c->now;
 	b=c->blocks[blocknumber];
 	uint32_t page = b->now++;
-	int res=b->block_num*_PPB+page;
+	int res=b->block_num*_PPB + page;
 	if(page>_PPB) abort();
 	c->used_page_num++;
 	bm->assigned_page++;
 	//printf("result page num is %d\n",res);
 	return res;
-	
-
 }
 
 int seq_pick_page_num(struct blockmanager* bm,__segment *s){

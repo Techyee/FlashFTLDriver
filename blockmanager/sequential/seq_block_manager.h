@@ -60,6 +60,6 @@ void seq_free_segment(struct blockmanager *, __segment *);
 
 //my new functions.
 __chip* seq_get_chip (struct blockmanager* bm, bool isreserve);
-int seq_get_page_num_pinned(struct blockmanager* bm, __chip *c, int mark);
+int seq_get_page_num_pinned(struct blockmanager* bm, __chip *c, int mark,bool isreserve);
 
 #endif

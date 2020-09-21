@@ -62,6 +62,7 @@ uint32_t page_map_assign_pinned(KEYT* lba, int mark){
 		}
 		/*mapping update*/
 		p->mapping[t_lba]=res*L2PGAP+i;
+		validate_ppa(res, lba);
 		DPRINTF("\tmap set : %u->%u\n", t_lba, p->mapping[t_lba]);
 	}
 	return res;
@@ -113,6 +114,18 @@ uint32_t page_map_gc_update(KEYT *lba, uint32_t idx){
 	}
 
 	return res;
+}
+
+uint32_t page_map_gc_update_chip(KEYT *lba, uint32_t idx, int chip_num){
+	//while updating a page_map, pickup a reserved block
+	//!!hardcoded for (PAGESIZE == LPAGESIZE) case!!
+	uint32_t res = 0;
+	KEYT t_lba = lba[0];
+	pm_body *p = (pm_body*)page_ftl.algo_body;
+	res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[chip_num],chip_num,true);
+	p->mapping[t_lba] = res*L2PGAP;
+	return res;
+
 }
 
 void page_map_free(){
