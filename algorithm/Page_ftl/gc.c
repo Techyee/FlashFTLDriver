@@ -109,8 +109,8 @@ void chip_gc(int mark){ //!!hard coded for (PAGESIZE == LPAGESIZE) case!!
 		done_cnt++;
 		//send gc write req.
 		
-		inf_free_valueset(gv->value,FS_MALLOC_R);
-		free(gv);
+		//inf_free_valueset(gv->value,FS_MALLOC_R);
+		//free(gv);
 		//return memory.
 next_idx:
 		cur_gv_idx = (cur_gv_idx+1) % gv_idx;

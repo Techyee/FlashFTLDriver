@@ -19,7 +19,7 @@
 #include <limits.h>
 //#include <readline/readline.h>
 //#include <readline/history.h>
-#define LASYNC 0
+#define LASYNC 1
 pthread_mutex_t fd_lock;
 mem_seg *seg_table;
 #if (LASYNC==1)
@@ -45,7 +45,7 @@ lower_info my_posix={
 	.device_badblock_checker=NULL,
 #if (LASYNC==1)
 	.trim_block=posix_make_trim,
-	.trim_a_block=posix_trim_a_block,
+	.trim_a_block=posix_make_trim,
 #elif (LASYNC==0)
 	.trim_block=posix_trim_block,
 	.trim_a_block=posix_trim_a_block,
@@ -88,7 +88,7 @@ void *l_main(void *__input){
 				posix_pull_data(inf_req->key, inf_req->size, inf_req->value, inf_req->isAsync, inf_req->upper_req);
 				break;
 			case FS_LOWER_T:
-				posix_trim_block(inf_req->key, inf_req->isAsync);
+				posix_trim_a_block(inf_req->key, inf_req->isAsync);
 				break;
 		}
 		free(inf_req);
