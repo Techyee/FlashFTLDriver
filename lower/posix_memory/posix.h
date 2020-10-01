@@ -12,6 +12,7 @@ void* posix_push_data(uint32_t ppa, uint32_t size, value_set *value,bool async, 
 void* posix_pull_data(uint32_t ppa, uint32_t size, value_set* value,bool async,algo_req * const req);
 void* posix_make_push(uint32_t ppa, uint32_t size, value_set *value,bool async, algo_req * const req);
 void* posix_make_pull(uint32_t ppa, uint32_t size, value_set *value,bool async, algo_req * const req);
+
 void* posix_badblock_checker(uint32_t ppa, uint32_t size, void*(*process)(uint64_t,uint8_t));
 void* posix_trim_block(uint32_t ppa, bool async);
 void* posix_trim_a_block(uint32_t ppa, bool async);
@@ -25,7 +26,12 @@ char * posix_hw_get_kt();
 char *posix_hw_get_inv();
 uint32_t convert_ppa(uint32_t);
 
+//my version of posix push and pull.
+void* posix_push_data_latency(uint32_t ppa, uint32_t size, value_set* value,bool async, algo_req * const req);
+void* posix_pull_data_latency(uint32_t ppa, uint32_t size, value_set* value,bool async, algo_req * const req); 
 typedef struct posix_request {
+	void * hptr;
+	uint32_t deadline;
 	FSTYPE type;
 	uint32_t key;
 	value_set *value;

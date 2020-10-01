@@ -35,14 +35,17 @@ void page_destroy (lower_info* li, algorithm *algo){
 	return;
 }
 
-inline void send_user_req(request *const req, uint32_t type, ppa_t ppa,value_set *value){
+inline void send_user_req(request *const req, uint32_t type, ppa_t ppa,value_set *value, uint32_t deadline){
 	/*you can implement your own structur for your specific FTL*/
 	page_params* params=(page_params*)malloc(sizeof(page_params));
 	algo_req *my_req=(algo_req*)malloc(sizeof(algo_req));
 	params->value=value;
 	my_req->parents=req;//add the upper request
 	my_req->end_req=page_end_req;//this is callback function
-	my_req->params=(void*)params;//add your parameter structure 
+	my_req->params=(void*)params;//add your parameter structure
+	uint32_t target_chip = ppa / (BPC * _PPB);
+	my_req->mark = target_chip;
+	my_req->deadline = deadline;
 	my_req->type=type;//DATAR means DATA reads, this affect traffics results
 	/*you note that after read a PPA, the callback function called*/
 
@@ -57,7 +60,7 @@ inline void send_user_req(request *const req, uint32_t type, ppa_t ppa,value_set
 }
 
 uint32_t page_read(request *const req){
-
+	uint32_t deadline = req->deadline;
 	value_set *cached_value=buffer->get(req->key);
 	if(!cached_value){
 		for(uint32_t i=0; i<a_buffer.idx; i++){
@@ -85,13 +88,14 @@ uint32_t page_read(request *const req){
 			req->end_req(req);
 		}
 		else{
-			send_user_req(req, DATAR, req->value->ppa/L2PGAP, req->value);
+			send_user_req(req, DATAR, req->value->ppa/L2PGAP, req->value, deadline);
 		}
 	}
 	return 1;
 }
 
-uint32_t align_buffering(request *const req, KEYT key, value_set *value){
+uint32_t align_buffering(request *const req, KEYT key, value_set *value, uint32_t deadline){
+	uint32_t _deadline = deadline;
 	if(req){
 		a_buffer.value[a_buffer.idx]=req->value;
 		a_buffer.key[a_buffer.idx]=req->key;
@@ -101,6 +105,7 @@ uint32_t align_buffering(request *const req, KEYT key, value_set *value){
 		a_buffer.key[a_buffer.idx]=key;
 	}
 	a_buffer.idx++;
+	
 	if(a_buffer.idx==L2PGAP){
 		//TTC allocation version must differentiate mapping!
 #ifdef TTCalloc
@@ -108,13 +113,14 @@ uint32_t align_buffering(request *const req, KEYT key, value_set *value){
 #else
 		ppa_t ppa=page_map_assign(a_buffer.key);
 #endif
+		
 		value_set *value=inf_get_valueset(NULL, FS_MALLOC_W, PAGESIZE);
 		for(uint32_t i=0; i<L2PGAP; i++){
 
 			memcpy(&value->value[i*4096], a_buffer.value[i]->value, 4096);
 			inf_free_valueset(a_buffer.value[i], FS_MALLOC_W);
 		}
-		send_user_req(NULL, DATAW, ppa, value);
+		send_user_req(NULL, DATAW, ppa, value, _deadline);
 		a_buffer.idx=0;
 	}
 	return 1;
@@ -122,18 +128,19 @@ uint32_t align_buffering(request *const req, KEYT key, value_set *value){
 
 uint32_t page_write(request *const req){
 	//printf("write key :%u\n",req->key);
+	uint32_t deadline = req->deadline;
 	std::pair<ppa_t, value_set *> r; 
 	if(caching_num_lb!=0){
 		r=buffer->put(req->key, req->value);
 		if(r.first!=UINT_MAX){
-			align_buffering(NULL, r.first, r.second);
+			align_buffering(NULL, r.first, r.second, deadline);
 			//send_user_req(NULL, DATAW, page_map_assign(r.first), r.second);
 		}
 		req->value=NULL;
 		req->end_req(req);
 	}
 	else{
-		align_buffering(req, 0, NULL);
+		align_buffering(req, 0, NULL, deadline);
 		req->value=NULL;
 		req->end_req(req);
 		//send_user_req(req, DATAW, page_map_assign(req->key), req->value);

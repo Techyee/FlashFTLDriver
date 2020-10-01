@@ -101,6 +101,8 @@ e:for application req*/
 	void *hash_params;
 #endif
 	struct vectored_request *parents;
+	//my data
+	uint32_t deadline;
 };
 
 struct algo_req{
@@ -111,6 +113,11 @@ struct algo_req{
 	uint8_t type;
 	bool rapid;
 	uint8_t type_lower;
+	struct timeval l_start;
+	//my data
+	uint8_t mark;
+	int32_t deadline;
+	//!my data
 	//0: normal, 1 : no tag, 2: read delay 4:write delay
 	void *(*end_req)(struct algo_req *const);
 	void *params;

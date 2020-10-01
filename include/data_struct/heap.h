@@ -19,6 +19,15 @@ typedef struct max_heap{
 	int (*get_cnt)(void *a);
 }mh;
 
+typedef struct min_heap{
+	hn* body;
+	int size;
+	int max;
+	void (*swap_hptr)(void * a, void * b);
+	void (*assign_hptr)(void * a, void * mh);
+	int (*get_cnt)(void *a);
+}minh;
+
 void mh_init(mh**, int bn, void (*swap_hptr)(void*,void*), void(*aassign_hptr)(void *, void *),int (*get_cnt)(void *a));
 void mh_free(mh*);
 void mh_insert(mh*, void *data, int number);
@@ -26,4 +35,12 @@ void mh_insert_append(mh *, void *data);
 void mh_construct(mh *);
 void* mh_get_max(mh*);
 void mh_update(mh*,int number, void *hptr);
+
+void minh_init(minh**, int bn, void (*swap_hptr)(void*,void*), void(*aassign_hptr)(void *, void *),int (*get_cnt)(void *a));
+void minh_free(minh*);
+void minh_insert(minh*, void *data, int number);
+void minh_insert_append(minh *, void *data);
+void minh_construct(minh *);
+void* minh_get_min(minh*);
+void minh_update(minh*,int number, void *hptr);
 #endif
