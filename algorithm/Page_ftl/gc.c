@@ -5,6 +5,11 @@
 #include <stdint.h>
 #include <unistd.h>
 extern algorithm page_ftl;
+
+//pseudo-deadline for GC-IO serving.
+//hard coded for 16 chip.
+uint32_t pseudo_dl[16] = {1, };
+
 void invalidate_ppa(uint32_t t_ppa){
 	if(t_ppa<32768){
 		//abort();
@@ -28,7 +33,11 @@ gc_value* send_req(uint32_t ppa, uint8_t type, value_set *value){
 	my_req->parents=NULL;
 	my_req->end_req=page_gc_end_req;//call back function for GC
 	my_req->type=type;
-	
+	//assign pseudo_dl for first serve.
+	int mark = ppa / BPC / _PPB;
+	my_req->mark = mark;
+	my_req->deadline = pseudo_dl[mark];
+	pseudo_dl[mark]++;
 	/*for gc, you should assign free space for reading valid data*/
 	gc_value *res=NULL;
 	switch(type){
@@ -116,6 +125,7 @@ next_idx:
 		cur_gv_idx = (cur_gv_idx+1) % gv_idx;
 	}
 	
+	//successfully sent req for gc_read.
 	//trim target block.
 	target->invalid_number = 0;
 	target->now = 0;
@@ -128,6 +138,9 @@ next_idx:
 	p->chip_actives_arr[mark]->reserved_block = target;
 	q_enqueue(reserved,p->chip_actives_arr[mark]->free_block_queue);
 	mh_insert_append(p->chip_actives_arr[mark]->free_block_maxheap,(void*)target);
+
+	//reset pseudo_dl;
+	pseudo_dl[mark] = 1;
 	
 }
 void new_do_gc(){

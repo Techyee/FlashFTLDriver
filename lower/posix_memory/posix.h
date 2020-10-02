@@ -1,7 +1,7 @@
 #ifndef POSIX_HEADER
 #define POSIX_HEADER
 #include "../../include/container.h"
-
+#include "../../include/utils/cond_lock.h"
 #define FS_LOWER_W 1
 #define FS_LOWER_R 2
 #define FS_LOWER_T 3
@@ -26,12 +26,14 @@ char * posix_hw_get_kt();
 char *posix_hw_get_inv();
 uint32_t convert_ppa(uint32_t);
 
-//my version of posix push and pull.
-void* posix_push_data_latency(uint32_t ppa, uint32_t size, value_set* value,bool async, algo_req * const req);
-void* posix_pull_data_latency(uint32_t ppa, uint32_t size, value_set* value,bool async, algo_req * const req); 
+void *new_latency_main(void *__input);
+
 typedef struct posix_request {
 	void * hptr;
 	uint32_t deadline;
+	uint32_t trim_mark;
+	struct timeval dev_init;
+
 	FSTYPE type;
 	uint32_t key;
 	value_set *value;
@@ -43,4 +45,10 @@ typedef struct posix_request {
 typedef struct mem_seg {
 	PTR storage;
 } mem_seg;
+
+typedef struct _chip_info{
+	pthread_t chip_pid;
+	cl_lock* latency;
+	int mark;
+}chip_info;
 #endif
