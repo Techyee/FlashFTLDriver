@@ -43,12 +43,17 @@ inline void send_user_req(request *const req, uint32_t type, ppa_t ppa,value_set
 	my_req->parents=req;//add the upper request
 	my_req->end_req=page_end_req;//this is callback function
 	my_req->params=(void*)params;//add your parameter structure
-	uint32_t target_chip = ppa / (BPC * _PPB);
-	my_req->mark = target_chip;
-	my_req->deadline = deadline;
 	my_req->type=type;//DATAR means DATA reads, this affect traffics results
 	/*you note that after read a PPA, the callback function called*/
 
+	//my data.
+	uint32_t target_chip = ppa / (BPC * _PPB);
+	my_req->mark = target_chip;
+	my_req->deadline = deadline;
+	//record the algo_init_t inside algo_req.
+	my_req->algo_init_t.tv_sec = req->algo_init_t.tv_sec;
+	my_req->algo_init_t.tv_usec = req->algo_init_t.tv_usec;
+	
 	switch(type){
 		case DATAR:
 			page_ftl.li->read(ppa,PAGESIZE,value,ASYNC,my_req);
@@ -60,6 +65,7 @@ inline void send_user_req(request *const req, uint32_t type, ppa_t ppa,value_set
 }
 
 uint32_t page_read(request *const req){
+	gettimeofday(&(req->algo_init_t),NULL);
 	uint32_t deadline = req->deadline;
 	value_set *cached_value=buffer->get(req->key);
 	if(!cached_value){
@@ -120,29 +126,31 @@ uint32_t align_buffering(request *const req, KEYT key, value_set *value, uint32_
 			memcpy(&value->value[i*4096], a_buffer.value[i]->value, 4096);
 			inf_free_valueset(a_buffer.value[i], FS_MALLOC_W);
 		}
-		send_user_req(NULL, DATAW, ppa, value, _deadline);
+		send_user_req(req, DATAW, ppa, value, _deadline);
 		a_buffer.idx=0;
 	}
 	return 1;
 }
 
+//TTC :: adjusted to send req data to align_buffering function.(end_req not called here)
 uint32_t page_write(request *const req){
 	//printf("write key :%u\n",req->key);
+	gettimeofday(&(req->algo_init_t),NULL);
 	uint32_t deadline = req->deadline;
 	std::pair<ppa_t, value_set *> r; 
 	if(caching_num_lb!=0){
 		r=buffer->put(req->key, req->value);
 		if(r.first!=UINT_MAX){
-			align_buffering(NULL, r.first, r.second, deadline);
+			align_buffering(req, r.first, r.second, deadline);
 			//send_user_req(NULL, DATAW, page_map_assign(r.first), r.second);
 		}
 		req->value=NULL;
-		req->end_req(req);
+		//req->end_req(req);
 	}
 	else{
 		align_buffering(req, 0, NULL, deadline);
 		req->value=NULL;
-		req->end_req(req);
+		//req->end_req(req);
 		//send_user_req(req, DATAW, page_map_assign(req->key), req->value);
 	}
 

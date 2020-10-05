@@ -34,7 +34,8 @@ gc_value* send_req(uint32_t ppa, uint8_t type, value_set *value){
 	my_req->end_req=page_gc_end_req;//call back function for GC
 	my_req->type=type;
 	//assign pseudo_dl for first serve.
-	int mark = ppa / BPC / _PPB;
+	gettimeofday(&(my_req->algo_init_t),NULL);
+	int mark = ppa / (BPC * _PPB);
 	my_req->mark = mark;
 	my_req->deadline = pseudo_dl[mark];
 	pseudo_dl[mark]++;
@@ -60,12 +61,30 @@ gc_value* send_req(uint32_t ppa, uint8_t type, value_set *value){
 	}
 	return res;
 }
+
+void send_req_cb(uint32_t ppa, uint32_t ppa2, uint8_t type){
+	algo_req *my_req = (algo_req*)malloc(sizeof(algo_req));
+	my_req->parents = NULL;
+	my_req->type = type;
+	my_req->mark = ppa / (BPC * _PPB);
+	my_req->end_req=page_gc_end_req;
+	switch(type){
+	case GCCB:
+		page_ftl.li->copyback(ppa,ppa2,PAGESIZE,ASYNC);
+		break;
+	default:
+		printf("send_req_cb only supports copyback!");
+		abort();
+		break;
+	}
+}
 void chip_gc(int mark){ //!!hard coded for (PAGESIZE == LPAGESIZE) case!!
 	//find victim block
 	pm_body *p = (pm_body*)page_ftl.algo_body;
-	static int targ_block = 1;
+	
 	mh_construct(p->chip_actives_arr[mark]->free_block_maxheap);
 	__block* target = (__block*)mh_get_max(p->chip_actives_arr[mark]->free_block_maxheap);
+	//static int targ_block = 1;
 	//__block* target = p->chip_actives_arr[mark]->blocks[targ_block];
 	//targ_block = (targ_block + 1) % BPC;
 	printf("target block grabbed %d\n",target->block_num);
@@ -85,7 +104,7 @@ void chip_gc(int mark){ //!!hard coded for (PAGESIZE == LPAGESIZE) case!!
 
 	int valid_cnt = 0;
 	int read_cnt = 0;
-	for(pidx=0;pidx != _PPB;pidx++){
+	for(pidx=0;pidx!=_PPB;pidx++){
 		if(bm->is_valid_page(bm,page)){
 			gv=send_req(page,GCDR,NULL);
 			gv_array[gv_idx++] = gv;
@@ -112,7 +131,7 @@ void chip_gc(int mark){ //!!hard coded for (PAGESIZE == LPAGESIZE) case!!
 		memcpy(&g_buffer.value,gv->value->value,PAGESIZE);
 		g_buffer.key[0] = lbas[0];
 		//!copy
-		res = page_map_gc_update_chip(g_buffer.key, L2PGAP,mark);
+		res = page_map_gc_update_chip(g_buffer.key,L2PGAP,mark);
 		validate_ppa(res,g_buffer.key);
 		send_req(res,GCDW,inf_get_valueset(g_buffer.value,FS_MALLOC_W,PAGESIZE));
 		done_cnt++;
@@ -132,17 +151,57 @@ next_idx:
 	memset(target->bitset,0,_PPB/8);
 	memset(target->oob_list,0,sizeof(target->oob_list));
 	page_ftl.li->trim_a_block(target->block_num*_PPB,ASYNC);
-	
 	//queue manipulation.
 	reserved = p->chip_actives_arr[mark]->reserved_block;
 	p->chip_actives_arr[mark]->reserved_block = target;
 	q_enqueue(reserved,p->chip_actives_arr[mark]->free_block_queue);
 	mh_insert_append(p->chip_actives_arr[mark]->free_block_maxheap,(void*)target);
-
 	//reset pseudo_dl;
-	pseudo_dl[mark] = 1;
-	
+	pseudo_dl[mark] = 1;	
 }
+
+void chip_gc_cb(int mark){
+    pm_body *p = (pm_body*)page_ftl.algo_body;
+
+    //use maxheap to get gc target.
+    mh_construct(p->chip_actives_arr[mark]->free_block_maxheap);
+	__block* target = (__block*)mh_get_max(p->chip_actives_arr[mark]->free_block_maxheap);
+    __block* reserved;
+
+    blockmanager *bm=page_ftl.bm;
+    uint32_t page = target->block_num * _PPB;
+    uint32_t pidx;
+    uint32_t source_ppa;
+    uint32_t dest_ppa;
+    KEYT* lbas;
+
+    //for each page in target block, try to send copyback operation.
+    for(pidx=0;pidx != _PPB; pidx++){
+        if(bm->is_valid_page(bm,page)){
+            source_ppa = page;
+            lbas = (KEYT*)bm->get_oob(bm,source_ppa);
+            dest_ppa = page_map_gc_update_chip(lbas,L2PGAP,mark);
+            validate_ppa(dest_ppa,lbas);
+            send_req_cb(source_ppa,dest_ppa,GCCB);		
+        }
+        pidx++;
+        page++;
+    }
+
+	//reset info.
+    target->invalid_number = 0;
+    target->now = 0;
+ 	memset(target->bitset,0,_PPB/8);
+	memset(target->oob_list,0,sizeof(target->oob_list));
+    page_ftl.li->trim_a_block(target->block_num*_PPB,ASYNC);
+
+    //queue manipulation.(swap reserved with target block)
+    reserved = p->chip_actives_arr[mark]->reserved_block;
+	p->chip_actives_arr[mark]->reserved_block = target;
+	q_enqueue(reserved,p->chip_actives_arr[mark]->free_block_queue);
+	mh_insert_append(p->chip_actives_arr[mark]->free_block_maxheap,(void*)target);
+}
+
 void new_do_gc(){
 	/*this function return a block which have the most number of invalidated page*/
 	__gsegment *target=page_ftl.bm->get_gc_target(page_ftl.bm);
@@ -329,7 +388,8 @@ ppa_t get_ppa_pinned(KEYT *lbas, int mark){
 	static uint32_t cnt = 0;
 	cnt++;
 	pm_body *p = (pm_body*)page_ftl.algo_body;
-
+	struct timeval gc_init;
+	struct timeval gc_end;
 retry:
 	//testing logic. simply partitioning according to mark.
 	if(mark == 0) res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[0], mark, false);
@@ -344,8 +404,10 @@ retry:
 
 	//if a page is not available, go through garbage collection.
 	if(res == UINT32_MAX){
-		
-		chip_gc(mark);
+		gettimeofday(&(gc_init),NULL);
+		//chip_gc(mark);
+		chip_gc_cb(mark);
+		gettimeofday(&(gc_end),NULL);
 		goto retry;
 	}
 	validate_ppa(res,lbas);

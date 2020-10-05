@@ -46,8 +46,7 @@ typedef struct vectored_request{
 	uint32_t mark;
 	void* (*end_req)(void*);
 	void* origin_req;
-	struct timeval inf_start;
-	struct timeval inf_end;
+
 } vec_request;
 
 struct request {
@@ -57,6 +56,8 @@ struct request {
 	uint32_t offset;
 	uint32_t tid;
 	uint32_t length;
+	struct timeval inf_enqueue;
+	struct timeval inf_dequeue;
 	char *buf;
 	
 	uint64_t ppa;/*it can be the iter_idx*/
@@ -103,6 +104,9 @@ e:for application req*/
 	struct vectored_request *parents;
 	//my data
 	uint32_t deadline;
+	struct timeval inf_start;
+	struct timeval inf_end;
+	struct timeval algo_init_t;
 };
 
 struct algo_req{
@@ -113,10 +117,13 @@ struct algo_req{
 	uint8_t type;
 	bool rapid;
 	uint8_t type_lower;
-	struct timeval l_start;
+
 	//my data
+	struct timeval algo_init_t;
+	struct timeval l_start;
 	uint8_t mark;
 	int32_t deadline;
+
 	//!my data
 	//0: normal, 1 : no tag, 2: read delay 4:write delay
 	void *(*end_req)(struct algo_req *const);
@@ -128,6 +135,7 @@ struct lower_info {
 	void* (*destroy)(struct lower_info*);
 	void* (*write)(uint32_t ppa, uint32_t size, value_set *value,bool async,algo_req * const req);
 	void* (*read)(uint32_t ppa, uint32_t size, value_set *value,bool async,algo_req * const req);
+
 	void* (*device_badblock_checker)(uint32_t ppa,uint32_t size,void *(*process)(uint64_t, uint8_t));
 	void* (*trim_block)(uint32_t ppa,bool async);
 	void* (*trim_a_block)(uint32_t ppa,bool async);
@@ -138,6 +146,8 @@ struct lower_info {
 	void (*lower_flying_req_wait) ();
 	void (*lower_show_info)();
 	uint32_t (*lower_tag_num)();
+	//my function
+	void* (*copyback)(uint32_t PPA, uint32_t PPA2, uint32_t size, bool async);
 #ifdef Lsmtree
 	void* (*read_hw)(uint32_t ppa, char *key,uint32_t key_len, value_set *value,bool async,algo_req * const req);
 	uint32_t (*hw_do_merge)(uint32_t lp_num, ppa_t *lp_array, uint32_t hp_num,ppa_t *hp_array,ppa_t *tp_array, uint32_t* ktable_num, uint32_t *invliadate_num);
@@ -164,6 +174,7 @@ struct lower_info {
 	uint64_t all_pages_in_dev;//for scale up test
 
 	uint64_t req_type_cnt[LREQ_TYPE_NUM];
+
 	//anything
 };
 

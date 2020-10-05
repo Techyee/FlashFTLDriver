@@ -79,6 +79,13 @@ lower_info my_posix={
 	.hw_get_kt=posix_hw_get_kt,
 	.hw_get_inv=posix_hw_get_inv
 #endif
+
+//my function
+#if (LASYNC==1)
+	.copyback=posix_make_copyback,
+#elif (LASYNC==0)
+	.copyback=posix_copyback
+#endif
 };
 
  uint32_t d_write_cnt, m_write_cnt, gcd_write_cnt, gcm_write_cnt;
@@ -113,7 +120,7 @@ void *l_main(void *__input){
 	//make a queue for low-levl latency generation.
 	//assume there's a per_chip queue.
 	for(int i=0;i<16;i++){
-		q_init(&req_station[i],1024);
+		q_init(&req_station[i],10240);
 		minh_init(&req_minheap[i],1024,req_mh_swap_hptr,req_mh_assign_hptr,req_get_cnt);
 	}
 
@@ -136,31 +143,41 @@ void *l_main(void *__input){
 		if(!(inf_req=(posix_request*)q_dequeue(p_q))){
 			continue;
 		} 
-#ifdef LATENCY
+#ifdef LATENCY //in latency mode, l_main serves as a splitter for each chip.
 		target_chip = inf_req->trim_mark;
 		
 		switch(inf_req->type){
 			case FS_LOWER_W:
 				//minh_insert_append(req_minheap[inf_req->upper_req->mark],(void*)inf_req);
+				gettimeofday(&(inf_req->dev_init_t),NULL);
 				q_enqueue((void*)inf_req,req_station[target_chip]);
 				cl_release(shival[target_chip]->latency);
 				break;
 
 			case FS_LOWER_R:
 				//minh_insert_append(req_minheap[inf_req->upper_req->mark],(void*)inf_req);
+				gettimeofday(&(inf_req->dev_init_t),NULL);
 				q_enqueue((void*)inf_req,req_station[target_chip]);
 				cl_release(shival[target_chip]->latency);
 				break;
 
 			case FS_LOWER_T:
 				//minh_insert_append(req_minheap[inf_req->trim_mark],(void*)inf_req);
-				printf("target_chip is %d\n",target_chip);
+				gettimeofday(&(inf_req->dev_init_t),NULL);
+				q_enqueue((void*)inf_req,req_station[target_chip]);
+				cl_release(shival[target_chip]->latency);
+				break;
+
+			case FS_LOWER_C:
+				printf("target chip is %d\n",target_chip);
+				//minh_insert_append(req_minheap[inf_req->trim_mark],(void*)inf_req);
+				gettimeofday(&(inf_req->dev_init_t),NULL);
 				q_enqueue((void*)inf_req,req_station[target_chip]);
 				cl_release(shival[target_chip]->latency);
 				break;
 		} //dealing with high-level queue.
 
-#else
+#else //non latency mode. initiate operation imediately, in single-queue manner.
 		switch(inf_req->type){
 			case FS_LOWER_W:
 			
@@ -174,6 +191,11 @@ void *l_main(void *__input){
 				
 				posix_trim_a_block(inf_req->key, inf_req->isAsync);
 				break;
+
+			case FS_LOWER_C:
+
+				posix_copyback(inf_req->key,inf_req->key2,inf_req->size,inf_req->isAsync);
+				break;
 		} //dealing with high-level queue.
 #endif
 		
@@ -184,19 +206,28 @@ void *l_main(void *__input){
 	return NULL;
 }
 
-void *new_latency_main(void *arg){
+void *new_latency_main(void *arg){ // latency generater main code.
 	chip_info* recv = (chip_info*)arg;
 	posix_request* active = NULL;
+	bool show_latency = true;
+	int algo_elapse;
+	int lower_elapse;
+	int dev_elapse;
 	while(1){
 		cl_grap(recv->latency);
 		active = (posix_request*)q_dequeue(req_station[recv->mark]);
-		//printf("checking status of active, %ld, %d, %d\n",active->deadline,active->type,active->trim_mark);
-		
 		if(active != NULL){
 			switch(active->type){
 				case FS_LOWER_W:
 					usleep(500);
 					posix_push_data(active->key, active->size, active->value, active->isAsync, active->upper_req);
+					gettimeofday(&(active->dev_end_t),NULL);
+					if(show_latency == true){
+						algo_elapse = active->l_init_t.tv_sec - active->algo_init_t.tv_sec + active->l_init_t.tv_usec - active->algo_init_t.tv_usec;
+						lower_elapse = active->dev_init_t.tv_sec - active->l_init_t.tv_sec + active->dev_init_t.tv_usec - active->l_init_t.tv_usec;
+						dev_elapse = active->dev_end_t.tv_sec - active->dev_init_t.tv_sec + active->dev_end_t.tv_usec - active->dev_init_t.tv_usec;
+					//	printf("[latency] ALGO : %d, LOWER : %d, DEV : %d\n",algo_elapse, lower_elapse,dev_elapse);
+					}
 					free(active);
 					active = NULL;
 					break;
@@ -204,6 +235,13 @@ void *new_latency_main(void *arg){
 				case FS_LOWER_R:
 					usleep(50);
 					posix_pull_data(active->key, active->size, active->value, active->isAsync, active->upper_req);
+					gettimeofday(&(active->dev_end_t),NULL);
+					if(show_latency == true){
+						algo_elapse = active->l_init_t.tv_sec - active->algo_init_t.tv_sec + active->l_init_t.tv_usec - active->algo_init_t.tv_usec;
+						lower_elapse = active->dev_init_t.tv_sec - active->l_init_t.tv_sec + active->dev_init_t.tv_usec - active->l_init_t.tv_usec;
+						dev_elapse = active->dev_end_t.tv_sec - active->dev_init_t.tv_sec + active->dev_end_t.tv_usec - active->dev_init_t.tv_usec;
+						printf("[latency] ALGO : %d, LOWER : %d, DEV : %d\n",algo_elapse, lower_elapse,dev_elapse);
+					}
 					free(active);
 					active = NULL;
 					break;
@@ -211,6 +249,16 @@ void *new_latency_main(void *arg){
 				case FS_LOWER_T:
 					usleep(5000);
 					posix_trim_a_block(active->key, active->isAsync);
+					gettimeofday(&(active->dev_end_t),NULL);
+					free(active);
+					active = NULL;
+					break;
+
+				case FS_LOWER_C:
+					printf("doing cpb\n");
+					usleep(550);
+					posix_copyback(active->key,active->key2,active->size,active->isAsync);
+					gettimeofday(&(active->dev_end_t),NULL);
 					free(active);
 					active = NULL;
 					break;
@@ -260,7 +308,7 @@ void *latency_main(void *__input){
 					active[i] = (posix_request*)q_dequeue(req_station[i]);
 					flying_num[i]--;
 					pthread_mutex_unlock(&latency_lock);
-					gettimeofday(&(active[i]->dev_init),NULL);
+					gettimeofday(&(active[i]->dev_init_t),NULL);
 					count_flag = true;
 				}
 				else{//cur active still exists.
@@ -275,7 +323,7 @@ void *latency_main(void *__input){
 		if(count_flag == true){
 			for(int i=0;i<16;i++){
 				if(active[i] != NULL){//when i-th chip has non-null active request,
-					elapsed = (cur_time.tv_sec - active[i]->dev_init.tv_sec ) * 1000000 + (cur_time.tv_usec - active[i]->dev_init.tv_usec);
+					elapsed = (cur_time.tv_sec - active[i]->dev_init_t.tv_sec ) * 1000000 + (cur_time.tv_usec - active[i]->dev_init_t.tv_usec);
 	
 					if((elapsed >= 0) && (active[i]->type == FS_LOWER_W)){
 						posix_push_data(active[i]->key, active[i]->size, active[i]->value, active[i]->isAsync, active[i]->upper_req);
@@ -299,36 +347,37 @@ void *latency_main(void *__input){
 	return NULL;
 }
 
+
 void *posix_make_push(uint32_t PPA, uint32_t size, value_set* value, bool async, algo_req *const req){
-	struct timeval t_init;
-	gettimeofday(&t_init, NULL);
+
 	bool flag=false;
 	posix_request *p_req=(posix_request*)malloc(sizeof(posix_request));
+	
 	p_req->type=FS_LOWER_W;
 	p_req->key=PPA;
 	p_req->value=value;
 	p_req->upper_req=req;
 	p_req->isAsync=async;
 	p_req->size=size;
+	//my data.
 	p_req->deadline = req->deadline;
-	p_req->dev_init.tv_sec = t_init.tv_sec;
-	p_req->dev_init.tv_usec = t_init.tv_usec;
 	p_req->trim_mark = req->mark;
+	p_req->algo_init_t.tv_sec = req->algo_init_t.tv_sec;
+	p_req->algo_init_t.tv_usec = req->algo_init_t.tv_usec;
 	while(!flag){
 		if(q_enqueue((void*)p_req,p_q)){
+			gettimeofday(&(p_req->l_init_t), NULL);
 			cl_release(lower_flying);
 			flag=true;
 		}
-
 	}
 	return NULL;
 }
 
 void *posix_make_pull(uint32_t PPA, uint32_t size, value_set* value, bool async, algo_req *const req){
-	struct timeval t_init;
-	gettimeofday(&t_init, NULL);
 	bool flag=false;
 	posix_request *p_req=(posix_request*)malloc(sizeof(posix_request));
+	
 	p_req->type=FS_LOWER_R;
 	p_req->key=PPA;
 	p_req->value=value;
@@ -337,12 +386,15 @@ void *posix_make_pull(uint32_t PPA, uint32_t size, value_set* value, bool async,
 	p_req->size=size;
 	req->type_lower=0;
 	bool once=true;
+	//my data.
 	p_req->deadline = req->deadline;
-	p_req->dev_init.tv_sec = t_init.tv_sec;
-	p_req->dev_init.tv_usec = t_init.tv_usec;
 	p_req->trim_mark = req->mark;
+	p_req->algo_init_t.tv_sec = req->algo_init_t.tv_sec;
+	p_req->algo_init_t.tv_usec = req->algo_init_t.tv_usec;
+
 	while(!flag){
 		if(q_enqueue((void*)p_req,p_q)){
+			gettimeofday(&(p_req->l_init_t), NULL);
 			cl_release(lower_flying);
 			flag=true;
 		}	
@@ -355,9 +407,6 @@ void *posix_make_pull(uint32_t PPA, uint32_t size, value_set* value, bool async,
 }
 
 void *posix_make_trim(uint32_t PPA, bool async){
-	struct timeval trim_init;
-	gettimeofday(&trim_init, NULL);
-	
 	bool flag=false;
 	posix_request *p_req=(posix_request*)malloc(sizeof(posix_request));
 	p_req->type=FS_LOWER_T;
@@ -365,15 +414,35 @@ void *posix_make_trim(uint32_t PPA, bool async){
 	p_req->isAsync=async;
 	p_req->deadline = _PPB + 1;
 	p_req->trim_mark = PPA / (_PPB * BPC);
+	printf("trim enqueued.\n");
 	while(!flag){
 		if(q_enqueue((void*)p_req,p_q)){
+			gettimeofday(&(p_req->l_init_t), NULL);
 			cl_release(lower_flying);
 			flag=true;
 		}
 	}
-	p_req->dev_init.tv_sec = trim_init.tv_sec;
-	p_req->dev_init.tv_usec = trim_init.tv_usec;
+	return NULL;
+}
 
+
+void *posix_make_copyback(uint32_t ppa, uint32_t ppa2, uint32_t size, bool async){
+	
+	bool flag = false;
+	posix_request *p_req = (posix_request*)malloc(sizeof(posix_request));
+	p_req->type = FS_LOWER_C;
+	p_req->key = ppa;
+	p_req->key2 = ppa2;
+	p_req->isAsync=async;
+	p_req->size = size;
+	p_req->trim_mark = ppa / (_PPB * BPC);
+	while(!flag){
+		if(q_enqueue((void*)p_req,p_q)){
+			gettimeofday(&(p_req->l_init_t), NULL);
+			cl_release(lower_flying);
+			flag=true;
+		}
+	}
 	return NULL;
 }
 #endif
@@ -387,7 +456,7 @@ uint32_t posix_create(lower_info *li, blockmanager *b){
 	li->PPB=_PPB;
 	li->PPS=_PPS;
 	li->TS=TOTALSIZE;
-	lower_flying=cl_init(QDEPTH,true);
+	lower_flying=cl_init(QDEPTH,true);//large queue
 	
 	invalidate_ppa_ptr=(char*)malloc(sizeof(uint32_t)*PPA_LIST_SIZE*20);
 	result_addr=(char*)malloc(8192*(PPA_LIST_SIZE));
@@ -401,7 +470,7 @@ uint32_t posix_create(lower_info *li, blockmanager *b){
 	pthread_mutex_init(&fd_lock,NULL);
 #if (LASYNC==1)
 	stopflag = false;
-	q_init(&p_q, 1024);
+	q_init(&p_q, 10240);
 	pthread_create(&t_id,NULL,&l_main,NULL);
 #endif
 
@@ -440,6 +509,37 @@ static uint8_t convert_type(uint8_t type) {
 extern bb_checker checker;
 inline uint32_t convert_ppa(uint32_t PPA){
 	return PPA;
+}
+void *posix_copyback(uint32_t _PPA, uint32_t _PPA2, uint32_t size, bool async){
+	//this operation mimics copyback operation.
+	//don't have to consider external data I/O
+	uint32_t PPA=convert_ppa(_PPA);
+	uint32_t PPA2=convert_ppa(_PPA2);
+	printf("source : %d, dest : %d\n",PPA,PPA2);
+	if((PPA>_NOP) || (PPA2>_NOP)){
+		printf("address error!\n");
+		abort();
+	}
+	value_set* value = (value_set*)malloc(sizeof(value_set));
+	value->value = (PTR)malloc(PAGESIZE);
+	//pull data.
+	if(!seg_table[PPA].storage){
+		printf("%u not populated!\n",PPA);
+		abort();
+	} else {
+		memcpy(value->value,seg_table[PPA].storage,PAGESIZE);
+	}
+	//push data.
+	if(!seg_table[PPA2].storage){
+		seg_table[PPA2].storage = (PTR)malloc(PAGESIZE);
+	}
+	else{
+		printf("storage is already malloc-ed...\n");
+		abort();
+	}
+	memcpy(seg_table[PPA2].storage,value->value,PAGESIZE);
+	free(value);
+	return NULL;
 }
 
 void *posix_push_data(uint32_t _PPA, uint32_t size, value_set* value, bool async,algo_req *const req){
@@ -525,7 +625,7 @@ void *posix_pull_data(uint32_t _PPA, uint32_t size, value_set* value, bool async
 void *posix_trim_block(uint32_t _PPA, bool async){
 	struct timeval trim_init;
 	gettimeofday(&trim_init,NULL);
-
+	
 	uint32_t PPA=convert_ppa(_PPA);
 	if(my_posix.SOP*PPA >= my_posix.TS || PPA%my_posix.PPS != 0){
 		printf("\ntrim error\n");

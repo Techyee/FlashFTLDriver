@@ -38,7 +38,7 @@ int main(int argc,char* argv[]){
 	bench_vectored_configure();
 //	bench_add(VECTOREDRSET,0,RANGE,RANGE);
 	bench_add(VECTOREDRSET,0         , RANGE*1/16 - 1, RANGE/4);
-	bench_add(VECTOREDRSET,RANGE*1/16, RANGE*2/16, RANGE/4);
+//	bench_add(VECTOREDRSET,RANGE*1/16, RANGE*2/16, RANGE/4);
 	//bench_add(VECTOREDRSET,RANGE*3/16, RANGE*4/16 - 1, RANGE/4);
 	//bench_add(VECTOREDRGET,0,RANGE/100*99,RANGE/100*99);
 	printf("range: %lu!\n",RANGE);
@@ -51,21 +51,21 @@ int main(int argc,char* argv[]){
 	
 	task1.bench_idx = 0;
 	task1.num_op = 3;
-	task1.period = 5000;
+	task1.period = 1500;
 
 	task2.bench_idx = 1;
 	task2.num_op = 1;
-	task2.period = 1000;
+	task2.period = 10000;
 
 	task3.bench_idx = 2;
 	task3.num_op = 3;
 	task3.period = 1500;
 	
 	tid1 = pthread_create(&pth[0],NULL,inf_main,(void*)&task1);
-	tid2 = pthread_create(&pth[1],NULL,inf_main,(void*)&task2);
+//	tid2 = pthread_create(&pth[1],NULL,inf_main,(void*)&task2);
 	//tid3 = pthread_create(&pth[2],NULL,inf_main,(void*)&task3);
 	pthread_join(pth[0],(void**)&status);
-	pthread_join(pth[1],(void**)&status);
+//	pthread_join(pth[1],(void**)&status);
 	//pthread_join(pth[2],(void**)&status);
 	printf("thread is joined!!\n");
 	/*

@@ -209,6 +209,8 @@ static request *get_next_request(processor *pr){
 	}
 
 send_req:
+	request* temp = (request*)_inf_req;
+	gettimeofday(&(temp->inf_dequeue),NULL);
 	return (request*)_inf_req;
 }
 

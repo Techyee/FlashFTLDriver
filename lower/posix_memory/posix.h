@@ -5,6 +5,7 @@
 #define FS_LOWER_W 1
 #define FS_LOWER_R 2
 #define FS_LOWER_T 3
+#define FS_LOWER_C 4
 
 uint32_t posix_create(lower_info*,blockmanager *);
 void *posix_destroy(lower_info*);
@@ -26,16 +27,22 @@ char * posix_hw_get_kt();
 char *posix_hw_get_inv();
 uint32_t convert_ppa(uint32_t);
 
+//my functions
 void *new_latency_main(void *__input);
+void* posix_make_copyback(uint32_t ppa, uint32_t ppa2, uint32_t size, bool async);
+void* posix_copyback(uint32_t ppa, uint32_t ppa2, uint32_t size, bool async);
 
 typedef struct posix_request {
 	void * hptr;
 	uint32_t deadline;
 	uint32_t trim_mark;
-	struct timeval dev_init;
-
+	struct timeval algo_init_t;
+	struct timeval l_init_t;
+	struct timeval dev_init_t;
+	struct timeval dev_end_t;
 	FSTYPE type;
 	uint32_t key;
+	uint32_t key2;
 	value_set *value;
 	algo_req *upper_req;
 	bool isAsync;
