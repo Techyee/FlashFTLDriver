@@ -55,6 +55,7 @@ typedef struct mem_seg {
 
 typedef struct _chip_info{
 	pthread_t chip_pid;
+	pthread_mutex_t chip_heap_lock;
 	cl_lock* latency;
 	int mark;
 }chip_info;

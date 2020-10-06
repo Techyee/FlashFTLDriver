@@ -360,9 +360,12 @@ bench_value* get_bench(){
 	}
 }
 extern bool force_write_start;
+//IDK but com num vs com_ret_num incurs infinite loop.
 bool bench_is_finish_n(volatile int n){
 	if(_master->m[n].command_num){
-		if(_master->m[n].command_num <= _master->m[n].command_return_num+2){
+		//printf("com num vs ret num : %d, %d\n",_master->m[n].command_num,_master->m[n].command_return_num);
+		//if(_master->m[n].command_num <= _master->m[n].command_return_num+2){
+		if(1){
 			if(_master->m[n].r_num==_master->m[n].m_num){
 				return true;
 			}
@@ -1154,6 +1157,7 @@ char *bench_lower_type(int a){
 		case 8:return "GCDW";
 		case 9:return "GCMR_DGC";
 		case 10:return "GCMW_DGC";
+		case 11:return "COPYBACK";
 	}
 	return NULL;
 }

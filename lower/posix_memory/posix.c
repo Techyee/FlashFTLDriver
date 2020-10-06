@@ -42,8 +42,8 @@ minh* req_minheap[16]; //!!hard coded form 4way 4chip.
 pthread_t tid_chip1;
 pthread_t tid_chip2;
 int req_station_init = 0;
-pthread_mutex_t latency_lock;
-
+pthread_mutex_t cnt_lock;
+int _g_req_cnt = 0;
 int flying_num[16] = {0, };
 //!my data
 
@@ -117,67 +117,83 @@ void *l_main(void *__input){
 
 	posix_request *inf_req;
 	int target_chip;
+	int req_num = 0;
 	//make a queue for low-levl latency generation.
 	//assume there's a per_chip queue.
 	for(int i=0;i<16;i++){
 		q_init(&req_station[i],10240);
-		minh_init(&req_minheap[i],1024,req_mh_swap_hptr,req_mh_assign_hptr,req_get_cnt);
+		minh_init(&req_minheap[i],10240,req_mh_swap_hptr,req_mh_assign_hptr,req_get_cnt);
 	}
-
-	chip_info** shival = (chip_info**)malloc(sizeof(chip_info*) * 2);
-	for(int i=0;i<2;i++){
-		shival[i] = (chip_info*)malloc(sizeof(chip_info));
-		shival[i]->latency = cl_init(QDEPTH,true);
-		shival[i]->mark = i;
+	//hard coded for 4 chip testing.
+	chip_info** cinfo = (chip_info**)malloc(sizeof(chip_info*) * 4);
+	for(int i=0;i<4;i++){
+		cinfo[i] = (chip_info*)malloc(sizeof(chip_info));
+		cinfo[i]->latency = cl_init(QDEPTH,true);
+		pthread_mutex_init(&(cinfo[i]->chip_heap_lock),NULL);
+		cinfo[i]->mark = i;
 	}
-	pthread_create(&(tid_chip1),NULL,&new_latency_main,(void*)shival[0]);
-	pthread_create(&(tid_chip2),NULL,&new_latency_main,(void*)shival[1]);
-
+	pthread_mutex_init(&(cnt_lock),NULL);
+	pthread_create(&(cinfo[0]->chip_pid),NULL,&new_latency_main,(void*)cinfo[0]);
+	pthread_create(&(cinfo[1]->chip_pid),NULL,&new_latency_main,(void*)cinfo[1]);
+	pthread_create(&(cinfo[2]->chip_pid),NULL,&new_latency_main,(void*)cinfo[2]);
+	pthread_create(&(cinfo[3]->chip_pid),NULL,&new_latency_main,(void*)cinfo[3]);
 	while(1){
-		cl_grap(lower_flying);
 		if(stopflag){
-			//printf("posix bye bye!\n");
+			printf("posix bye bye! processed req num : %d\n",req_num);	
 			pthread_exit(NULL);
 			break;
 		}
+		cl_grap(lower_flying);
+		
 		if(!(inf_req=(posix_request*)q_dequeue(p_q))){
 			continue;
 		} 
-#ifdef LATENCY //in latency mode, l_main serves as a splitter for each chip.
+#ifdef LATENCY //latency mode. l_main serves as a splitter for each chip.
 		target_chip = inf_req->trim_mark;
 		
 		switch(inf_req->type){
 			case FS_LOWER_W:
-				//minh_insert_append(req_minheap[inf_req->upper_req->mark],(void*)inf_req);
+				pthread_mutex_lock(&(cinfo[target_chip]->chip_heap_lock));
+				minh_insert_append(req_minheap[inf_req->upper_req->mark],(void*)inf_req);
+				pthread_mutex_unlock(&(cinfo[target_chip]->chip_heap_lock));
 				gettimeofday(&(inf_req->dev_init_t),NULL);
-				q_enqueue((void*)inf_req,req_station[target_chip]);
-				cl_release(shival[target_chip]->latency);
+				//q_enqueue((void*)inf_req,req_station[target_chip]);
+				cl_release(cinfo[target_chip]->latency);
+				
 				break;
 
 			case FS_LOWER_R:
-				//minh_insert_append(req_minheap[inf_req->upper_req->mark],(void*)inf_req);
+				pthread_mutex_lock(&(cinfo[target_chip]->chip_heap_lock));
+				minh_insert_append(req_minheap[inf_req->upper_req->mark],(void*)inf_req);
+				pthread_mutex_unlock(&(cinfo[target_chip]->chip_heap_lock));
 				gettimeofday(&(inf_req->dev_init_t),NULL);
-				q_enqueue((void*)inf_req,req_station[target_chip]);
-				cl_release(shival[target_chip]->latency);
+				//q_enqueue((void*)inf_req,req_station[target_chip]);
+				cl_release(cinfo[target_chip]->latency);
+				
 				break;
 
 			case FS_LOWER_T:
-				//minh_insert_append(req_minheap[inf_req->trim_mark],(void*)inf_req);
+				pthread_mutex_lock(&(cinfo[target_chip]->chip_heap_lock));
+				minh_insert_append(req_minheap[inf_req->trim_mark],(void*)inf_req);
+				pthread_mutex_unlock(&(cinfo[target_chip]->chip_heap_lock));
 				gettimeofday(&(inf_req->dev_init_t),NULL);
-				q_enqueue((void*)inf_req,req_station[target_chip]);
-				cl_release(shival[target_chip]->latency);
+				//q_enqueue((void*)inf_req,req_station[target_chip]);
+				cl_release(cinfo[target_chip]->latency);
+				
 				break;
 
 			case FS_LOWER_C:
-				printf("target chip is %d\n",target_chip);
-				//minh_insert_append(req_minheap[inf_req->trim_mark],(void*)inf_req);
+				pthread_mutex_lock(&(cinfo[target_chip]->chip_heap_lock));
+				minh_insert_append(req_minheap[inf_req->trim_mark],(void*)inf_req);
+				pthread_mutex_unlock(&(cinfo[target_chip]->chip_heap_lock));
 				gettimeofday(&(inf_req->dev_init_t),NULL);
-				q_enqueue((void*)inf_req,req_station[target_chip]);
-				cl_release(shival[target_chip]->latency);
+				//q_enqueue((void*)inf_req,req_station[target_chip]);
+				cl_release(cinfo[target_chip]->latency);
+				
 				break;
 		} //dealing with high-level queue.
 
-#else //non latency mode. initiate operation imediately, in single-queue manner.
+#else //non latency mode. initiate operation immediately in single-queue manner.
 		switch(inf_req->type){
 			case FS_LOWER_W:
 			
@@ -213,9 +229,26 @@ void *new_latency_main(void *arg){ // latency generater main code.
 	int algo_elapse;
 	int lower_elapse;
 	int dev_elapse;
+	int lat_req = 0;
 	while(1){
+		if(stopflag){
+			printf("posix bye bye! processed lat_req num : %d\n",lat_req);	
+			pthread_exit(NULL);
+			break;
+		}
 		cl_grap(recv->latency);
-		active = (posix_request*)q_dequeue(req_station[recv->mark]);
+		pthread_mutex_lock(&(recv->chip_heap_lock));
+		//active = (posix_request*)q_dequeue(req_station[recv->mark]);
+		minh_construct(req_minheap[recv->mark]);
+		active = (posix_request*)minh_get_min(req_minheap[recv->mark]);
+		
+		pthread_mutex_unlock(&(recv->chip_heap_lock));
+		
+//		if(stopflag){
+//			//printf("posix bye bye!\n");
+//			pthread_exit(NULL);
+//			break;
+//		}
 		if(active != NULL){
 			switch(active->type){
 				case FS_LOWER_W:
@@ -226,7 +259,7 @@ void *new_latency_main(void *arg){ // latency generater main code.
 						algo_elapse = active->l_init_t.tv_sec - active->algo_init_t.tv_sec + active->l_init_t.tv_usec - active->algo_init_t.tv_usec;
 						lower_elapse = active->dev_init_t.tv_sec - active->l_init_t.tv_sec + active->dev_init_t.tv_usec - active->l_init_t.tv_usec;
 						dev_elapse = active->dev_end_t.tv_sec - active->dev_init_t.tv_sec + active->dev_end_t.tv_usec - active->dev_init_t.tv_usec;
-					//	printf("[latency] ALGO : %d, LOWER : %d, DEV : %d\n",algo_elapse, lower_elapse,dev_elapse);
+						printf("[chip %d] req : %d, ALGO : %d, LOWER : %d, DEV : %d\n",recv->mark, _g_req_cnt, algo_elapse, lower_elapse,dev_elapse);
 					}
 					free(active);
 					active = NULL;
@@ -247,6 +280,7 @@ void *new_latency_main(void *arg){ // latency generater main code.
 					break;
 
 				case FS_LOWER_T:
+					
 					usleep(5000);
 					posix_trim_a_block(active->key, active->isAsync);
 					gettimeofday(&(active->dev_end_t),NULL);
@@ -255,18 +289,18 @@ void *new_latency_main(void *arg){ // latency generater main code.
 					break;
 
 				case FS_LOWER_C:
-					printf("doing cpb\n");
+				
 					usleep(550);
 					posix_copyback(active->key,active->key2,active->size,active->isAsync);
 					gettimeofday(&(active->dev_end_t),NULL);
 					free(active);
 					active = NULL;
 					break;
-			} //dealing with high-level queue.
+			}//generate artificial latency to current I/O operation.
 		}
 	}
 }
-
+/*
 void *latency_main(void *__input){
 	//latency enforcer for each request. hardcoded for 16 chips.
 	//when time reaches right latency, end it & free it.
@@ -302,12 +336,12 @@ void *latency_main(void *__input){
 			else{//flying req exists.
 				if(active[i] == NULL){//cur active gone.
 					
-					pthread_mutex_lock(&latency_lock);
+					//pthread_mutex_lock(&latency_lock);
 					//minh_construct(req_minheap[i]);
 					//active[i] = (posix_request*)minh_get_min(req_minheap[i]);
 					active[i] = (posix_request*)q_dequeue(req_station[i]);
 					flying_num[i]--;
-					pthread_mutex_unlock(&latency_lock);
+					//pthread_mutex_unlock(&latency_lock);
 					gettimeofday(&(active[i]->dev_init_t),NULL);
 					count_flag = true;
 				}
@@ -346,7 +380,7 @@ void *latency_main(void *__input){
 	}
 	return NULL;
 }
-
+*/
 
 void *posix_make_push(uint32_t PPA, uint32_t size, value_set* value, bool async, algo_req *const req){
 
@@ -436,6 +470,7 @@ void *posix_make_copyback(uint32_t ppa, uint32_t ppa2, uint32_t size, bool async
 	p_req->isAsync=async;
 	p_req->size = size;
 	p_req->trim_mark = ppa / (_PPB * BPC);
+	p_req->deadline = 1;
 	while(!flag){
 		if(q_enqueue((void*)p_req,p_q)){
 			gettimeofday(&(p_req->l_init_t), NULL);
@@ -515,7 +550,7 @@ void *posix_copyback(uint32_t _PPA, uint32_t _PPA2, uint32_t size, bool async){
 	//don't have to consider external data I/O
 	uint32_t PPA=convert_ppa(_PPA);
 	uint32_t PPA2=convert_ppa(_PPA2);
-	printf("source : %d, dest : %d\n",PPA,PPA2);
+	//printf("source : %d, dest : %d\n",PPA,PPA2);
 	if((PPA>_NOP) || (PPA2>_NOP)){
 		printf("address error!\n");
 		abort();
@@ -537,6 +572,8 @@ void *posix_copyback(uint32_t _PPA, uint32_t _PPA2, uint32_t size, bool async){
 		printf("storage is already malloc-ed...\n");
 		abort();
 	}
+	
+	my_posix.req_type_cnt[GCCB]++;
 	memcpy(seg_table[PPA2].storage,value->value,PAGESIZE);
 	free(value);
 	return NULL;
@@ -671,7 +708,7 @@ void* posix_trim_a_block(uint32_t _PPA, bool async){
 	}
 	
 	gettimeofday(&t_end, NULL);
-	printf("trim time : %d us \n",(t_end.tv_sec - t_init.tv_sec) * 1000000 + t_end.tv_usec - t_init.tv_usec);
+	//printf("trim time : %d us \n",(t_end.tv_sec - t_init.tv_sec) * 1000000 + t_end.tv_usec - t_init.tv_usec);
 	return NULL;
 }
 

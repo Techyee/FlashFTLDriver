@@ -104,10 +104,13 @@ e:for application req*/
 	struct vectored_request *parents;
 	//my data
 	uint32_t deadline;
+	int* alloc_chip;
+	int alloc_chip_num;
 	struct timeval inf_start;
 	struct timeval inf_end;
 	struct timeval algo_init_t;
 };
+//end of request structure.
 
 struct algo_req{
 	uint32_t ppa;
@@ -287,6 +290,8 @@ typedef struct _task_info{
 	int bench_idx;
 	int num_op;
 	int period;
+	int chip_num;
+	int* chip_idx;
 }task_info;
 
 #define for_each_block(segs,block,idx)\

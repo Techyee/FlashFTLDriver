@@ -37,8 +37,8 @@ int main(int argc,char* argv[]){
 	bench_init();
 	bench_vectored_configure();
 //	bench_add(VECTOREDRSET,0,RANGE,RANGE);
-	bench_add(VECTOREDRSET,0         , RANGE*1/16 - 1, RANGE/4);
-//	bench_add(VECTOREDRSET,RANGE*1/16, RANGE*2/16, RANGE/4);
+	bench_add(VECTOREDRSET,0         , RANGE*1/16 - 1, RANGE/8);
+	bench_add(VECTOREDRSET,RANGE*1/16, RANGE*2/16 - 1, RANGE/8);
 	//bench_add(VECTOREDRSET,RANGE*3/16, RANGE*4/16 - 1, RANGE/4);
 	//bench_add(VECTOREDRGET,0,RANGE/100*99,RANGE/100*99);
 	printf("range: %lu!\n",RANGE);
@@ -51,64 +51,32 @@ int main(int argc,char* argv[]){
 	
 	task1.bench_idx = 0;
 	task1.num_op = 3;
-	task1.period = 1500;
+	task1.period = 5000;
+	task1.chip_num = 2;
+	task1.chip_idx = (int*)malloc(sizeof(int)*task1.chip_num);
+	for(int i=0;i<task1.chip_num;i++)
+		task1.chip_idx[i] = i;
 
 	task2.bench_idx = 1;
-	task2.num_op = 1;
-	task2.period = 10000;
+	task2.num_op = 3;
+	task2.period = 5000;
+	task2.chip_num = 2;
+	task2.chip_idx = (int*)malloc(sizeof(int)*task2.chip_num);
+	for(int i=0;i<task1.chip_num;i++)
+		task2.chip_idx[i] = i;
 
 	task3.bench_idx = 2;
 	task3.num_op = 3;
 	task3.period = 1500;
 	
 	tid1 = pthread_create(&pth[0],NULL,inf_main,(void*)&task1);
-//	tid2 = pthread_create(&pth[1],NULL,inf_main,(void*)&task2);
-	//tid3 = pthread_create(&pth[2],NULL,inf_main,(void*)&task3);
+	tid2 = pthread_create(&pth[1],NULL,inf_main,(void*)&task2);
+//	tid3 = pthread_create(&pth[2],NULL,inf_main,(void*)&task3);
 	pthread_join(pth[0],(void**)&status);
-//	pthread_join(pth[1],(void**)&status);
-	//pthread_join(pth[2],(void**)&status);
+	pthread_join(pth[1],(void**)&status);
+//	pthread_join(pth[2],(void**)&status);
 	printf("thread is joined!!\n");
 	/*
-	char *value;
-	uint32_t mark;
-	int exec_time_usec;
-	int print_limit = 10;
-	int bench_init_stage = 1;
-	int op_num = 10;
-	int cur_num = 0;
-	int period_usec = 5000; //hard-coded period.
-	int elapsed_usec = 0;
-	//real-time version make request building.
-	struct timeval rt_start;
-	struct timeval rt_end;
-	
-	while(1){
-		//inf_make_req must be done in periodic manner.
-		
-		//interface body.	
-		gettimeofday(&rt_start,NULL);
-		value=get_vectored_bench_pinned(&mark, 0);
-		if(bench_init_stage == 1){//time for preparing bench data should not be counted.
-			gettimeofday(&rt_start,NULL);
-			bench_init_stage = 0;
-		}
-		if (value == NULL){
-			break;
-		}
-		inf_vector_make_req(value, bench_transaction_end_req, mark);
-		gettimeofday(&rt_end,NULL);
-		//!interface body
-		
-		elapsed_usec += (rt_end.tv_sec - rt_start.tv_sec)*1000000 + (rt_end.tv_usec - rt_start.tv_usec);
-		cur_num++;
-		if(cur_num == op_num){
-			usleep(period_usec - elapsed_usec);
-			cur_num = 0;
-			elapsed_usec = 0;
-		}
-	}
-
-	force_write_start=true;
 	
 	printf("bench finish\n");
 	while(!bench_is_finish()){

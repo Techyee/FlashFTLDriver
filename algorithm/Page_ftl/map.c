@@ -48,11 +48,11 @@ uint32_t page_map_assign(KEYT* lba){
 	return res;
 }
 
-uint32_t page_map_assign_pinned(KEYT* lba, int mark){
+uint32_t page_map_assign_pinned(KEYT* lba, int mark, int chip_num, int* chip_idx){
 	//pinned version for page_map_assign(nearly same)
 	uint32_t res = 0;
 	//use get_ppa_pinned to differentiate page allocation.
-	res = get_ppa_pinned(lba, mark);
+	res = get_ppa_pinned(lba, mark, chip_num, chip_idx);
 	pm_body *p = (pm_body*)page_ftl.algo_body;
 	for(uint32_t i=0; i<L2PGAP; i++){
 		KEYT t_lba=lba[i];

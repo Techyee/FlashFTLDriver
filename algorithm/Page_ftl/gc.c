@@ -9,7 +9,7 @@ extern algorithm page_ftl;
 //pseudo-deadline for GC-IO serving.
 //hard coded for 16 chip.
 uint32_t pseudo_dl[16] = {1, };
-
+int _g_cur_targ[32] = {0, };
 void invalidate_ppa(uint32_t t_ppa){
 	if(t_ppa<32768){
 		//abort();
@@ -67,7 +67,12 @@ void send_req_cb(uint32_t ppa, uint32_t ppa2, uint8_t type){
 	my_req->parents = NULL;
 	my_req->type = type;
 	my_req->mark = ppa / (BPC * _PPB);
+
 	my_req->end_req=page_gc_end_req;
+	//assing pseudo deadline.
+	my_req->deadline = pseudo_dl[my_req->mark];
+	pseudo_dl[my_req->mark]++;
+	//!finish asssigning pseudo dl.
 	switch(type){
 	case GCCB:
 		page_ftl.li->copyback(ppa,ppa2,PAGESIZE,ASYNC);
@@ -173,6 +178,7 @@ void chip_gc_cb(int mark){
     uint32_t pidx;
     uint32_t source_ppa;
     uint32_t dest_ppa;
+	int v_num = 0;
     KEYT* lbas;
 
     //for each page in target block, try to send copyback operation.
@@ -182,12 +188,13 @@ void chip_gc_cb(int mark){
             lbas = (KEYT*)bm->get_oob(bm,source_ppa);
             dest_ppa = page_map_gc_update_chip(lbas,L2PGAP,mark);
             validate_ppa(dest_ppa,lbas);
-            send_req_cb(source_ppa,dest_ppa,GCCB);		
+            send_req_cb(source_ppa,dest_ppa,GCCB);
+			v_num++;
         }
         pidx++;
         page++;
     }
-
+	
 	//reset info.
     target->invalid_number = 0;
     target->now = 0;
@@ -200,6 +207,7 @@ void chip_gc_cb(int mark){
 	p->chip_actives_arr[mark]->reserved_block = target;
 	q_enqueue(reserved,p->chip_actives_arr[mark]->free_block_queue);
 	mh_insert_append(p->chip_actives_arr[mark]->free_block_maxheap,(void*)target);
+	pseudo_dl[mark] = 1;
 }
 
 void new_do_gc(){
@@ -382,23 +390,34 @@ retry:
 	return res;
 }
 
-ppa_t get_ppa_pinned(KEYT *lbas, int mark){
+ppa_t get_ppa_pinned(KEYT *lbas, int mark, int chip_num, int* chip_idx){
 	//imagine a task is pinned on chip 1~4.
 	uint32_t res;
+	int target_idx;
+	int target_chip;
+	
 	static uint32_t cnt = 0;
 	cnt++;
 	pm_body *p = (pm_body*)page_ftl.algo_body;
 	struct timeval gc_init;
 	struct timeval gc_end;
 retry:
-	//testing logic. simply partitioning according to mark.
-	if(mark == 0) res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[0], mark, false);
+	//selection of target chip. use _g_cur_targ[mark] to track current target.
+	target_idx = chip_idx[_g_cur_targ[mark]];
+	_g_cur_targ[mark] = (_g_cur_targ[mark]+1) % chip_num;
+	target_chip = chip_idx[target_idx];
+	//!end of selection.
+
+	res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[target_chip],target_chip,false);
+	//old logic. hard coded partitioning.
+	/*
+	if(mark == 0) res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[target], target, false);
 	else if(mark == 1) res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[1], mark, false);
 	else if(mark == 2) res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[2], mark, false);
 	else{
 		printf("A mark of this bench is not registered!\n");
 		abort();
-	}
+	}*/
 	//get a page by newly created get_page_num_pinned.
 
 
@@ -406,7 +425,7 @@ retry:
 	if(res == UINT32_MAX){
 		gettimeofday(&(gc_init),NULL);
 		//chip_gc(mark);
-		chip_gc_cb(mark);
+		chip_gc_cb(target_chip);
 		gettimeofday(&(gc_end),NULL);
 		goto retry;
 	}

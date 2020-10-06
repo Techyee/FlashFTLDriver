@@ -277,8 +277,10 @@ void *p_main(void *__input){
 	pthread_setname_np(pthread_self(),thread_name);
 	while(1){
 
-		if(mp.stopflag)
+		if(mp.stopflag){
+			printf("p_main sent %d",inter_cnt);
 			break;
+		}
 		if(!(inf_req=get_next_request(_this))){
 
 			continue;
@@ -630,7 +632,7 @@ void inf_free(){
 	bench_free();
 	mp.li->stop();
 	mp.stopflag=true;
-
+	sleep(1);
 	printf("result of ms:\n");
 	printf("---\n");
 	for(int i=0; i<1; i++){
