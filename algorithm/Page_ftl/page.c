@@ -49,6 +49,7 @@ inline void send_user_req(request *const req, uint32_t type, ppa_t ppa,value_set
 	//my data.
 	uint32_t target_chip = ppa / (BPC * _PPB);
 	my_req->mark = target_chip;
+	my_req->bench_idx = req->mark;
 	my_req->deadline = deadline;
 	//record the algo_init_t inside algo_req.
 	my_req->algo_init_t.tv_sec = req->algo_init_t.tv_sec;

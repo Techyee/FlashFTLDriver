@@ -403,11 +403,10 @@ ppa_t get_ppa_pinned(KEYT *lbas, int mark, int chip_num, int* chip_idx){
 	struct timeval gc_end;
 retry:
 	//selection of target chip. use _g_cur_targ[mark] to track current target.
-	target_idx = chip_idx[_g_cur_targ[mark]];
+	target_idx = _g_cur_targ[mark];
 	_g_cur_targ[mark] = (_g_cur_targ[mark]+1) % chip_num;
 	target_chip = chip_idx[target_idx];
 	//!end of selection.
-
 	res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[target_chip],target_chip,false);
 	//old logic. hard coded partitioning.
 	/*

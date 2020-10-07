@@ -36,6 +36,7 @@ typedef struct posix_request {
 	void * hptr;
 	uint32_t deadline;
 	uint32_t trim_mark;
+	uint8_t bench_idx;
 	struct timeval algo_init_t;
 	struct timeval l_init_t;
 	struct timeval dev_init_t;

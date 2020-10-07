@@ -39,10 +39,10 @@ char *result_addr;
 //my data
 queue* req_station[16]; //!!hard coded for 4way 4chip.
 minh* req_minheap[16]; //!!hard coded form 4way 4chip.
-pthread_t tid_chip1;
-pthread_t tid_chip2;
 int req_station_init = 0;
 pthread_mutex_t cnt_lock;
+pthread_mutex_t profile_lock[4]; // cur task = 4. change if necessary
+FILE* pfs[4];
 int _g_req_cnt = 0;
 int flying_num[16] = {0, };
 //!my data
@@ -110,7 +110,7 @@ int req_get_cnt(void *a){
 	posix_request *aa=(posix_request*)a;
 	return aa->deadline;
 }
-//! minheap functions.
+//!minheap functions.
 
 #if (LASYNC==1)
 void *l_main(void *__input){
@@ -118,28 +118,49 @@ void *l_main(void *__input){
 	posix_request *inf_req;
 	int target_chip;
 	int req_num = 0;
+
 	//make a queue for low-levl latency generation.
-	//assume there's a per_chip queue.
 	for(int i=0;i<16;i++){
 		q_init(&req_station[i],10240);
 		minh_init(&req_minheap[i],10240,req_mh_swap_hptr,req_mh_assign_hptr,req_get_cnt);
 	}
-	//hard coded for 4 chip testing.
+
+	//cinfo & profile_lock init.(hardcoded)
 	chip_info** cinfo = (chip_info**)malloc(sizeof(chip_info*) * 4);
+	
 	for(int i=0;i<4;i++){
 		cinfo[i] = (chip_info*)malloc(sizeof(chip_info));
 		cinfo[i]->latency = cl_init(QDEPTH,true);
 		pthread_mutex_init(&(cinfo[i]->chip_heap_lock),NULL);
 		cinfo[i]->mark = i;
 	}
+	//prof lock.
+	
+	for(int i=0;i<4;i++)
+		pthread_mutex_init(&(profile_lock[i]),NULL);
+	//!inited.
+
+	//open a profile csv.
+	
+	for(int i=0;i<4;i++){
+		char name[100];
+		sprintf(name,"[bench %d]profile.csv",i);
+		pfs[i] = fopen(name,"w");
+	}
+
+	//init chip_mains.
 	pthread_mutex_init(&(cnt_lock),NULL);
 	pthread_create(&(cinfo[0]->chip_pid),NULL,&new_latency_main,(void*)cinfo[0]);
 	pthread_create(&(cinfo[1]->chip_pid),NULL,&new_latency_main,(void*)cinfo[1]);
 	pthread_create(&(cinfo[2]->chip_pid),NULL,&new_latency_main,(void*)cinfo[2]);
 	pthread_create(&(cinfo[3]->chip_pid),NULL,&new_latency_main,(void*)cinfo[3]);
+
+	//l_main while loop
 	while(1){
 		if(stopflag){
-			printf("posix bye bye! processed req num : %d\n",req_num);	
+			printf("posix bye bye! processed req num : %d\n",req_num);
+			for(int i=0;i<4;i++)
+				fclose(pfs[i]);	
 			pthread_exit(NULL);
 			break;
 		}
@@ -222,17 +243,17 @@ void *l_main(void *__input){
 	return NULL;
 }
 
-void *new_latency_main(void *arg){ // latency generater main code.
+void *new_latency_main(void *arg){ //latency generater main code.
 	chip_info* recv = (chip_info*)arg;
 	posix_request* active = NULL;
 	bool show_latency = true;
-	int algo_elapse;
-	int lower_elapse;
-	int dev_elapse;
+	uint32_t algo_elapse;
+	uint32_t lower_elapse;
+	uint32_t dev_elapse;
 	int lat_req = 0;
+
 	while(1){
-		if(stopflag){
-			printf("posix bye bye! processed lat_req num : %d\n",lat_req);	
+		if(stopflag){	
 			pthread_exit(NULL);
 			break;
 		}
@@ -241,14 +262,8 @@ void *new_latency_main(void *arg){ // latency generater main code.
 		//active = (posix_request*)q_dequeue(req_station[recv->mark]);
 		minh_construct(req_minheap[recv->mark]);
 		active = (posix_request*)minh_get_min(req_minheap[recv->mark]);
-		
 		pthread_mutex_unlock(&(recv->chip_heap_lock));
 		
-//		if(stopflag){
-//			//printf("posix bye bye!\n");
-//			pthread_exit(NULL);
-//			break;
-//		}
 		if(active != NULL){
 			switch(active->type){
 				case FS_LOWER_W:
@@ -256,10 +271,15 @@ void *new_latency_main(void *arg){ // latency generater main code.
 					posix_push_data(active->key, active->size, active->value, active->isAsync, active->upper_req);
 					gettimeofday(&(active->dev_end_t),NULL);
 					if(show_latency == true){
-						algo_elapse = active->l_init_t.tv_sec - active->algo_init_t.tv_sec + active->l_init_t.tv_usec - active->algo_init_t.tv_usec;
-						lower_elapse = active->dev_init_t.tv_sec - active->l_init_t.tv_sec + active->dev_init_t.tv_usec - active->l_init_t.tv_usec;
-						dev_elapse = active->dev_end_t.tv_sec - active->dev_init_t.tv_sec + active->dev_end_t.tv_usec - active->dev_init_t.tv_usec;
-						printf("[chip %d] req : %d, ALGO : %d, LOWER : %d, DEV : %d\n",recv->mark, _g_req_cnt, algo_elapse, lower_elapse,dev_elapse);
+						algo_elapse = (active->l_init_t.tv_sec - active->algo_init_t.tv_sec)*1000000 + active->l_init_t.tv_usec - active->algo_init_t.tv_usec;
+						lower_elapse = (active->dev_init_t.tv_sec - active->l_init_t.tv_sec)*1000000 + active->dev_init_t.tv_usec - active->l_init_t.tv_usec;
+						dev_elapse = (active->dev_end_t.tv_sec - active->dev_init_t.tv_sec)*1000000 + active->dev_end_t.tv_usec - active->dev_init_t.tv_usec;
+						if(dev_elapse > 1000000000){
+							printf("what happen? end : %ld, init : %ld\n",active->dev_end_t.tv_usec,active->dev_init_t.tv_usec);
+						}
+						pthread_mutex_lock(&(profile_lock[active->bench_idx]));
+						fprintf(pfs[active->bench_idx],"%ld, %ld, %ld, %ld, %ld\n",recv->mark, active->bench_idx, algo_elapse, lower_elapse, dev_elapse);
+						pthread_mutex_unlock(&(profile_lock[active->bench_idx]));
 					}
 					free(active);
 					active = NULL;
@@ -273,7 +293,9 @@ void *new_latency_main(void *arg){ // latency generater main code.
 						algo_elapse = active->l_init_t.tv_sec - active->algo_init_t.tv_sec + active->l_init_t.tv_usec - active->algo_init_t.tv_usec;
 						lower_elapse = active->dev_init_t.tv_sec - active->l_init_t.tv_sec + active->dev_init_t.tv_usec - active->l_init_t.tv_usec;
 						dev_elapse = active->dev_end_t.tv_sec - active->dev_init_t.tv_sec + active->dev_end_t.tv_usec - active->dev_init_t.tv_usec;
-						printf("[latency] ALGO : %d, LOWER : %d, DEV : %d\n",algo_elapse, lower_elapse,dev_elapse);
+						pthread_mutex_lock(&(profile_lock[active->bench_idx]));
+						fprintf(pfs[active->bench_idx],"%ld, %ld, %ld, %ld, %ld\n",recv->mark, active->bench_idx, algo_elapse, lower_elapse, dev_elapse);
+						pthread_mutex_unlock(&(profile_lock[active->bench_idx]));
 					}
 					free(active);
 					active = NULL;
@@ -300,6 +322,7 @@ void *new_latency_main(void *arg){ // latency generater main code.
 		}
 	}
 }
+
 /*
 void *latency_main(void *__input){
 	//latency enforcer for each request. hardcoded for 16 chips.
@@ -393,6 +416,7 @@ void *posix_make_push(uint32_t PPA, uint32_t size, value_set* value, bool async,
 	p_req->upper_req=req;
 	p_req->isAsync=async;
 	p_req->size=size;
+	p_req->bench_idx = req->bench_idx;
 	//my data.
 	p_req->deadline = req->deadline;
 	p_req->trim_mark = req->mark;
@@ -418,6 +442,7 @@ void *posix_make_pull(uint32_t PPA, uint32_t size, value_set* value, bool async,
 	p_req->upper_req=req;
 	p_req->isAsync=async;
 	p_req->size=size;
+	p_req->bench_idx = req->bench_idx;
 	req->type_lower=0;
 	bool once=true;
 	//my data.

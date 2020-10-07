@@ -126,7 +126,7 @@ struct algo_req{
 	struct timeval l_start;
 	uint8_t mark;
 	int32_t deadline;
-
+	uint8_t bench_idx;
 	//!my data
 	//0: normal, 1 : no tag, 2: read delay 4:write delay
 	void *(*end_req)(struct algo_req *const);
