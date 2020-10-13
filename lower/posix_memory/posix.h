@@ -29,9 +29,9 @@ uint32_t convert_ppa(uint32_t);
 
 //my functions
 void *new_latency_main(void *__input);
-void* posix_make_copyback(uint32_t ppa, uint32_t ppa2, uint32_t size, bool async);
-void* posix_copyback(uint32_t ppa, uint32_t ppa2, uint32_t size, bool async);
-
+void* posix_make_copyback(uint32_t ppa, uint32_t ppa2, uint32_t size, bool async,algo_req * const req);
+void* posix_copyback(uint32_t ppa, uint32_t ppa2, uint32_t size, bool async,algo_req * const req);
+void* posix_make_req_trim(uint32_t ppa, bool async, uint32_t gc_deadline);
 typedef struct posix_request {
 	void * hptr;
 	uint32_t deadline;

@@ -11,6 +11,7 @@ extern uint32_t test_key;
 uint32_t caching_num_lb;
 cache::lru_cache <ppa_t, value_set *>* buffer;
 align_buffer a_buffer;
+uint32_t _g_w_per_mark[32] = {0, };
 extern MeasureTime mt;
 struct algorithm page_ftl={
 	.argument_set=page_argument,
@@ -116,7 +117,7 @@ uint32_t align_buffering(request *const req, KEYT key, value_set *value, uint32_
 	if(a_buffer.idx==L2PGAP){
 		//TTC allocation version must differentiate mapping!
 #ifdef TTCalloc
-		ppa_t ppa=page_map_assign_pinned(a_buffer.key, req->mark, req->alloc_chip_num, req->alloc_chip);
+		ppa_t ppa=page_map_assign_pinned(a_buffer.key, req->mark, req->alloc_chip_num, req->alloc_chip, req->gc_deadline);
 #else
 		ppa_t ppa=page_map_assign(a_buffer.key);
 #endif

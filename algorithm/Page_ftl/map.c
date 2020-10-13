@@ -5,6 +5,7 @@
 #include <limits.h>
 #include <unistd.h>
 extern algorithm page_ftl;
+extern task_info task1, task2, task3, task4;
 
 void page_map_create(){
 	pm_body *p=(pm_body*)calloc(sizeof(pm_body),1);
@@ -48,11 +49,11 @@ uint32_t page_map_assign(KEYT* lba){
 	return res;
 }
 
-uint32_t page_map_assign_pinned(KEYT* lba, int mark, int chip_num, int* chip_idx){
+uint32_t page_map_assign_pinned(KEYT* lba, int mark, int chip_num, int* chip_idx, int gc_deadline){
 	//pinned version for page_map_assign(nearly same)
 	uint32_t res = 0;
 	//use get_ppa_pinned to differentiate page allocation.
-	res = get_ppa_pinned(lba, mark, chip_num, chip_idx);
+	res = get_ppa_pinned(lba, mark, chip_num, chip_idx, gc_deadline);
 	pm_body *p = (pm_body*)page_ftl.algo_body;
 	for(uint32_t i=0; i<L2PGAP; i++){
 		KEYT t_lba=lba[i];
@@ -63,6 +64,7 @@ uint32_t page_map_assign_pinned(KEYT* lba, int mark, int chip_num, int* chip_idx
 		/*mapping update*/
 		p->mapping[t_lba]=res*L2PGAP+i;
 		validate_ppa(res, lba);
+		//printf("map set : %u->%u\n",t_lba,p->mapping[t_lba]);
 		DPRINTF("\tmap set : %u->%u\n", t_lba, p->mapping[t_lba]);
 	}
 	return res;
@@ -115,7 +117,7 @@ uint32_t page_map_gc_update(KEYT *lba, uint32_t idx){
 
 	return res;
 }
-
+//old ver
 uint32_t page_map_gc_update_chip(KEYT *lba, uint32_t idx, int chip_num){
 	//while updating a page_map, pickup a reserved block
 	//!!hardcoded for (PAGESIZE == LPAGESIZE) case!!
@@ -126,6 +128,15 @@ uint32_t page_map_gc_update_chip(KEYT *lba, uint32_t idx, int chip_num){
 	p->mapping[t_lba] = res*L2PGAP;
 	return res;
 
+}
+
+uint32_t page_map_gc_noupdate(KEYT *lba, uint32_t idx, int mark, int chip_num, int gc_init){
+	uint32_t res = 0;
+	KEYT t_lba = lba[0];
+	pm_body *p = (pm_body*)page_ftl.algo_body;
+	//res = page_ftl.bm->get_page_num_pinned(page_ftl.bm, p->chip_actives_arr[chip_num],chip_num,true);
+	res = page_ftl.bm->get_page_num_gc(page_ftl.bm, p->chip_actives_arr[chip_num],mark,chip_num,gc_init);
+	return res;
 }
 
 void page_map_free(){

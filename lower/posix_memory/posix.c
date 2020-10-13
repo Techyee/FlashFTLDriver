@@ -37,6 +37,7 @@ char *invalidate_ppa_ptr;
 char *result_addr;
 
 //my data
+#define CHIP_NUM 16
 queue* req_station[16]; //!!hard coded for 4way 4chip.
 minh* req_minheap[16]; //!!hard coded form 4way 4chip.
 int req_station_init = 0;
@@ -82,7 +83,9 @@ lower_info my_posix={
 
 //my function
 #if (LASYNC==1)
-	.copyback=posix_make_copyback,
+	.req_trim=posix_make_req_trim,
+	.copyback=posix_make_copyback
+	
 #elif (LASYNC==0)
 	.copyback=posix_copyback
 #endif
@@ -125,35 +128,33 @@ void *l_main(void *__input){
 		minh_init(&req_minheap[i],10240,req_mh_swap_hptr,req_mh_assign_hptr,req_get_cnt);
 	}
 
-	//cinfo & profile_lock init.(hardcoded)
-	chip_info** cinfo = (chip_info**)malloc(sizeof(chip_info*) * 4);
-	
-	for(int i=0;i<4;i++){
+	//cinfo init.
+	chip_info** cinfo = (chip_info**)malloc(sizeof(chip_info*) * CHIP_NUM);
+	for(int i=0;i<CHIP_NUM;i++){
 		cinfo[i] = (chip_info*)malloc(sizeof(chip_info));
 		cinfo[i]->latency = cl_init(QDEPTH,true);
 		pthread_mutex_init(&(cinfo[i]->chip_heap_lock),NULL);
 		cinfo[i]->mark = i;
 	}
-	//prof lock.
-	
+	//!inited
+
+	//profile directory (file) initiation (hardcoded to 4 task)
 	for(int i=0;i<4;i++)
 		pthread_mutex_init(&(profile_lock[i]),NULL);
-	//!inited.
-
 	//open a profile csv.
-	
 	for(int i=0;i<4;i++){
 		char name[100];
 		sprintf(name,"[bench %d]profile.csv",i);
 		pfs[i] = fopen(name,"w");
 	}
+	//!inited.
 
-	//init chip_mains.
+	//chip main initiation(threads)
 	pthread_mutex_init(&(cnt_lock),NULL);
-	pthread_create(&(cinfo[0]->chip_pid),NULL,&new_latency_main,(void*)cinfo[0]);
-	pthread_create(&(cinfo[1]->chip_pid),NULL,&new_latency_main,(void*)cinfo[1]);
-	pthread_create(&(cinfo[2]->chip_pid),NULL,&new_latency_main,(void*)cinfo[2]);
-	pthread_create(&(cinfo[3]->chip_pid),NULL,&new_latency_main,(void*)cinfo[3]);
+	for(int i=0;i<CHIP_NUM;i++){
+		pthread_create(&(cinfo[i]->chip_pid),NULL,&new_latency_main,(void*)cinfo[i]);
+	}
+	//!inited
 
 	//l_main while loop
 	while(1){
@@ -262,6 +263,12 @@ void *new_latency_main(void *arg){ //latency generater main code.
 		//active = (posix_request*)q_dequeue(req_station[recv->mark]);
 		minh_construct(req_minheap[recv->mark]);
 		active = (posix_request*)minh_get_min(req_minheap[recv->mark]);
+		//if(active->type == FS_LOWER_C){
+		//	printf("doing cpb, deadline : %u\n",active->deadline);
+		//}
+		//else if(active->type == FS_LOWER_T){
+		//	printf("doing trim, deadline : %u\n",active->deadline);
+		//}
 		pthread_mutex_unlock(&(recv->chip_heap_lock));
 		
 		if(active != NULL){
@@ -313,7 +320,7 @@ void *new_latency_main(void *arg){ //latency generater main code.
 				case FS_LOWER_C:
 				
 					usleep(550);
-					posix_copyback(active->key,active->key2,active->size,active->isAsync);
+					posix_copyback(active->key,active->key2,active->size,active->isAsync,active->upper_req);
 					gettimeofday(&(active->dev_end_t),NULL);
 					free(active);
 					active = NULL;
@@ -484,8 +491,30 @@ void *posix_make_trim(uint32_t PPA, bool async){
 	return NULL;
 }
 
+void *posix_make_req_trim(uint32_t PPA, bool async, uint32_t gc_deadline){
+	bool flag=false;
+	posix_request *p_req=(posix_request*)malloc(sizeof(posix_request));
+	p_req->type=FS_LOWER_T;
+	p_req->key=PPA;
+	p_req->isAsync=async;
+	p_req->deadline = gc_deadline;
+	
+	if(gc_deadline == -1)
+		p_req->deadline = _PPB+1;
 
-void *posix_make_copyback(uint32_t ppa, uint32_t ppa2, uint32_t size, bool async){
+	p_req->trim_mark = PPA / (_PPB * BPC);
+	while(!flag){
+		if(q_enqueue((void*)p_req,p_q)){
+			gettimeofday(&(p_req->l_init_t), NULL);
+			cl_release(lower_flying);
+			flag=true;
+		}
+	}
+	return NULL;
+}
+
+
+void *posix_make_copyback(uint32_t ppa, uint32_t ppa2, uint32_t size, bool async,algo_req * const req){
 	
 	bool flag = false;
 	posix_request *p_req = (posix_request*)malloc(sizeof(posix_request));
@@ -495,7 +524,14 @@ void *posix_make_copyback(uint32_t ppa, uint32_t ppa2, uint32_t size, bool async
 	p_req->isAsync=async;
 	p_req->size = size;
 	p_req->trim_mark = ppa / (_PPB * BPC);
-	p_req->deadline = 1;
+	p_req->upper_req = req;
+	if(req->deadline == -1){//not specified or active GC
+		p_req->deadline = 1;
+	}
+	else{//if specified, 
+		p_req->deadline = req->deadline;
+	}
+	
 	while(!flag){
 		if(q_enqueue((void*)p_req,p_q)){
 			gettimeofday(&(p_req->l_init_t), NULL);
@@ -570,7 +606,7 @@ extern bb_checker checker;
 inline uint32_t convert_ppa(uint32_t PPA){
 	return PPA;
 }
-void *posix_copyback(uint32_t _PPA, uint32_t _PPA2, uint32_t size, bool async){
+void *posix_copyback(uint32_t _PPA, uint32_t _PPA2, uint32_t size, bool async,algo_req * const req){
 	//this operation mimics copyback operation.
 	//don't have to consider external data I/O
 	uint32_t PPA=convert_ppa(_PPA);
@@ -601,6 +637,8 @@ void *posix_copyback(uint32_t _PPA, uint32_t _PPA2, uint32_t size, bool async){
 	my_posix.req_type_cnt[GCCB]++;
 	memcpy(seg_table[PPA2].storage,value->value,PAGESIZE);
 	free(value);
+
+	req->end_req(req);
 	return NULL;
 }
 
@@ -636,6 +674,7 @@ void *posix_push_data(uint32_t _PPA, uint32_t size, value_set* value, bool async
 		seg_table[PPA].storage = (PTR)malloc(PAGESIZE);
 	}
 	else{
+		printf("storage is already malloc-ed...\n");
 		abort();
 	}
 	memcpy(seg_table[PPA].storage,value->value,size);
@@ -712,6 +751,32 @@ void posix_flying_req_wait(){
 }
 
 void* posix_trim_a_block(uint32_t _PPA, bool async){
+	struct timeval t_init;
+	struct timeval t_end;
+	gettimeofday(&t_init, NULL);
+	uint32_t PPA=convert_ppa(_PPA);
+	if(PPA>_NOP){
+		printf("address error!\n");
+		abort();
+	}
+	my_posix.req_type_cnt[TRIM]++;
+	static int cnt=0;
+	for(int i=0; i<_PPB; i++){
+		//uint32_t t=PPA+i*PUNIT;
+		uint32_t t=PPA+i;
+		if(!seg_table[t].storage){
+			//abort();
+		}
+		free(seg_table[t].storage);
+		seg_table[t].storage=NULL;
+	}
+	
+	gettimeofday(&t_end, NULL);
+	//printf("trim time : %d us \n",(t_end.tv_sec - t_init.tv_sec) * 1000000 + t_end.tv_usec - t_init.tv_usec);
+	return NULL;
+}
+
+void* posix_trim_req_block(uint32_t _PPA, bool async, algo_req * const req){
 	struct timeval t_init;
 	struct timeval t_end;
 	gettimeofday(&t_init, NULL);

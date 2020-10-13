@@ -17,7 +17,6 @@ extern tag_manager *tm;
 static int32_t flying_cnt = QDEPTH;
 static pthread_mutex_t flying_cnt_lock=PTHREAD_MUTEX_INITIALIZER; 
 bool vectored_end_req (request * const req);
-
 /*request-length request-size tid*/
 /*type key-len key offset length value*/
 
@@ -31,7 +30,7 @@ void* inf_transaction_end_req(void *req);
 extern bool TXN_debug;
 extern char *TXN_debug_ptr;
 static uint32_t seq_val;
-uint32_t inf_vector_make_req(char *buf, void* (*end_req) (void*), uint32_t mark, uint32_t deadline, int chip_num, int* chip_idx){
+uint32_t inf_vector_make_req(char *buf, void* (*end_req) (void*), uint32_t mark, uint32_t deadline, uint32_t gc_deadline, int chip_num, int* chip_idx){
 	static uint32_t seq_num=0;
 	uint32_t idx=0;
 	vec_request *txn=(vec_request*)malloc(sizeof(vec_request));
@@ -54,6 +53,7 @@ uint32_t inf_vector_make_req(char *buf, void* (*end_req) (void*), uint32_t mark,
 		temp->type=*(uint8_t*)buf_parser(buf, &idx, sizeof(uint8_t));
 		temp->end_req=vectored_end_req;
 		temp->deadline = deadline;
+		temp->gc_deadline = gc_deadline;
 		temp->params=NULL;
 		temp->value=NULL;
 		temp->isAsync=ASYNC;
@@ -268,6 +268,7 @@ void* inf_main(void* arg){
 	struct timeval rt_start;
 	struct timeval rt_end;
 	uint32_t deadline;
+	uint32_t gc_deadline;
 	while(1){
 		//inf_make_req must be done in periodic manner.
 		
@@ -286,7 +287,8 @@ void* inf_main(void* arg){
 		//calculate the deadline and pass to vectore request
 
 		deadline = rt_start.tv_sec * 1000000 + rt_start.tv_usec + received->period;
-		inf_vector_make_req(value, bench_transaction_end_req, mark, deadline, chip_num, chip_idx);
+		gc_deadline = rt_start.tv_sec * 1000000 + rt_start.tv_usec + received->gc_threshold * received->period;
+		inf_vector_make_req(value, bench_transaction_end_req, mark, deadline, gc_deadline, chip_num, chip_idx);
 		gettimeofday(&rt_end,NULL);
 		//!interface body
 		

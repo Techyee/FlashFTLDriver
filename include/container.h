@@ -102,8 +102,10 @@ e:for application req*/
 	void *hash_params;
 #endif
 	struct vectored_request *parents;
+
 	//my data
 	uint32_t deadline;
+	uint32_t gc_deadline;
 	int* alloc_chip;
 	int alloc_chip_num;
 	struct timeval inf_start;
@@ -127,7 +129,11 @@ struct algo_req{
 	uint8_t mark;
 	int32_t deadline;
 	uint8_t bench_idx;
+	KEYT GCCB_lbas;
+	uint32_t GCCB_ppa_des;
+	uint32_t GCCB_ppa_src;
 	//!my data
+
 	//0: normal, 1 : no tag, 2: read delay 4:write delay
 	void *(*end_req)(struct algo_req *const);
 	void *params;
@@ -150,7 +156,8 @@ struct lower_info {
 	void (*lower_show_info)();
 	uint32_t (*lower_tag_num)();
 	//my function
-	void* (*copyback)(uint32_t PPA, uint32_t PPA2, uint32_t size, bool async);
+	void* (*req_trim)(uint32_t ppa, bool async,uint32_t gc_deadline);
+	void* (*copyback)(uint32_t PPA, uint32_t PPA2, uint32_t size, bool async,algo_req * const req);
 #ifdef Lsmtree
 	void* (*read_hw)(uint32_t ppa, char *key,uint32_t key_len, value_set *value,bool async,algo_req * const req);
 	uint32_t (*hw_do_merge)(uint32_t lp_num, ppa_t *lp_array, uint32_t hp_num,ppa_t *hp_array,ppa_t *tp_array, uint32_t* ktable_num, uint32_t *invliadate_num);
@@ -227,13 +234,16 @@ typedef struct mastersegment{
 typedef struct masterchip{ //a master structure for chip.
 	uint32_t chip_idx;
 	__block* blocks[BPC];
-	__block* reserved_block;
+	__block* reserved_blocks[NUM_RSV];
 	uint32_t now;
 	uint32_t max;
+	uint32_t gc_now;
 	uint32_t used_page_num;
 	uint8_t invalid_blocks;
 	void *private_data;
 	queue *free_block_queue;
+	queue *full_block_queue;
+	queue *rsv_block_queue;
 	mh* free_block_maxheap;
 }__chip;
 
@@ -284,12 +294,14 @@ struct blockmanager{
 	//registering my own functions.
 	__chip* (*get_chip) (struct blockmanager*, bool isreserve);
 	int (*get_page_num_pinned) (struct blockmanager*, __chip*, int mark, bool isreserve);
+	int (*get_page_num_gc) (struct blockmanager*, __chip*, int mark, int chip_num, int gc_init);
 };
 
 typedef struct _task_info{
 	int bench_idx;
 	int num_op;
 	int period;
+	int gc_threshold;
 	int chip_num;
 	int* chip_idx;
 }task_info;

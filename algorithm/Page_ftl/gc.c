@@ -4,12 +4,19 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <unistd.h>
-extern algorithm page_ftl;
 
+extern algorithm page_ftl;
+extern task_info* tinfo;
 //pseudo-deadline for GC-IO serving.
-//hard coded for 16 chip.
+//hard coded for 16 chip, 32 tasks (up to)
 uint32_t pseudo_dl[16] = {1, };
 int _g_cur_targ[32] = {0, };
+uint32_t _g_cur_wnum[16] = {0, };
+uint32_t _g_cur_wnum_task[32] = {0, };
+//my definitions
+#define JIT
+#define SCHEDGC
+
 void invalidate_ppa(uint32_t t_ppa){
 	if(t_ppa<32768){
 		//abort();
@@ -23,7 +30,7 @@ void validate_ppa(uint32_t ppa, KEYT *lbas){
 	for(uint32_t i=0; i<L2PGAP; i++){
 		page_ftl.bm->populate_bit(page_ftl.bm,ppa * L2PGAP+i);
 	}
-
+	//printf("validating %u -> %u\n",ppa,lbas[0]);
 	/*this function is used for write some data to OOB(spare area) for reverse mapping*/
 	page_ftl.bm->set_oob(page_ftl.bm,(char*)lbas,sizeof(KEYT)*L2PGAP,ppa);
 }
@@ -62,20 +69,26 @@ gc_value* send_req(uint32_t ppa, uint8_t type, value_set *value){
 	return res;
 }
 
-void send_req_cb(uint32_t ppa, uint32_t ppa2, uint8_t type){
+void send_req_cb(uint32_t ppa, uint32_t ppa2, uint8_t type, KEYT* lbas, int gc_deadline){
 	algo_req *my_req = (algo_req*)malloc(sizeof(algo_req));
 	my_req->parents = NULL;
 	my_req->type = type;
 	my_req->mark = ppa / (BPC * _PPB);
-
+	my_req->GCCB_ppa_des = ppa2;
+	my_req->GCCB_ppa_src = ppa;
+	my_req->deadline = gc_deadline-1;//to make sure trim is issued after CPB finishes.
+	if(gc_deadline == -1)
+		my_req->deadline = 1;
+	memcpy(&(my_req->GCCB_lbas),lbas,sizeof(KEYT));
 	my_req->end_req=page_gc_end_req;
+
 	//assing pseudo deadline.
-	my_req->deadline = pseudo_dl[my_req->mark];
-	pseudo_dl[my_req->mark]++;
+	//my_req->deadline = pseudo_dl[my_req->mark];
+	//pseudo_dl[my_req->mark]++;
 	//!finish asssigning pseudo dl.
 	switch(type){
 	case GCCB:
-		page_ftl.li->copyback(ppa,ppa2,PAGESIZE,ASYNC);
+		page_ftl.li->copyback(ppa,ppa2,PAGESIZE,ASYNC,my_req);
 		break;
 	default:
 		printf("send_req_cb only supports copyback!");
@@ -105,7 +118,7 @@ void chip_gc(int mark){ //!!hard coded for (PAGESIZE == LPAGESIZE) case!!
 	uint32_t gv_idx = 0;
 	page = target->block_num * _PPB;
 	printf("target : %d, cur res: %d\n",target->block_num,
-	p->chip_actives_arr[mark]->reserved_block->block_num);
+	p->chip_actives_arr[mark]->reserved_blocks[0]->block_num);
 
 	int valid_cnt = 0;
 	int read_cnt = 0;
@@ -157,21 +170,32 @@ next_idx:
 	memset(target->oob_list,0,sizeof(target->oob_list));
 	page_ftl.li->trim_a_block(target->block_num*_PPB,ASYNC);
 	//queue manipulation.
-	reserved = p->chip_actives_arr[mark]->reserved_block;
-	p->chip_actives_arr[mark]->reserved_block = target;
+	reserved = p->chip_actives_arr[mark]->reserved_blocks[0];
+	p->chip_actives_arr[mark]->reserved_blocks[0] = target;
 	q_enqueue(reserved,p->chip_actives_arr[mark]->free_block_queue);
-	mh_insert_append(p->chip_actives_arr[mark]->free_block_maxheap,(void*)target);
+	mh_insert_append(p->chip_actives_arr[mark]->free_block_maxheap,(void*)reserved);
 	//reset pseudo_dl;
 	pseudo_dl[mark] = 1;	
 }
 
-void chip_gc_cb(int mark){
+void chip_gc_cb(int mark, int chip_num, int gc_deadline){
     pm_body *p = (pm_body*)page_ftl.algo_body;
+	__block* target;
+    //use maxheap to get gc target.(if possible)
+    mh_construct(p->chip_actives_arr[chip_num]->free_block_maxheap);
+	if(p->chip_actives_arr[chip_num]->free_block_maxheap->size > 0){
+		target = (__block*)mh_get_max(p->chip_actives_arr[chip_num]->free_block_maxheap);
+		printf("BGC can be scheduled.\n");
+	}
+	else{
+		target = NULL;
+	}
 
-    //use maxheap to get gc target.
-    mh_construct(p->chip_actives_arr[mark]->free_block_maxheap);
-	__block* target = (__block*)mh_get_max(p->chip_actives_arr[mark]->free_block_maxheap);
-    __block* reserved;
+	if(target == NULL){
+		printf("BGC X scheduled.\n");
+		return;
+	}
+	__block* reserved;
 
     blockmanager *bm=page_ftl.bm;
     uint32_t page = target->block_num * _PPB;
@@ -180,34 +204,55 @@ void chip_gc_cb(int mark){
     uint32_t dest_ppa;
 	int v_num = 0;
     KEYT* lbas;
-
+	bool gc_init = true;
     //for each page in target block, try to send copyback operation.
     for(pidx=0;pidx != _PPB; pidx++){
         if(bm->is_valid_page(bm,page)){
             source_ppa = page;
             lbas = (KEYT*)bm->get_oob(bm,source_ppa);
+#ifdef JIT
+			//does not update mapping info at address setting.
+			if(gc_init == true){
+				dest_ppa = page_map_gc_noupdate(lbas,L2PGAP,mark,chip_num,1);
+				gc_init = false;
+			}
+			else{
+				dest_ppa = page_map_gc_noupdate(lbas,L2PGAP,mark,chip_num,0);
+			}
+			
+			
+#else
             dest_ppa = page_map_gc_update_chip(lbas,L2PGAP,mark);
-            validate_ppa(dest_ppa,lbas);
-            send_req_cb(source_ppa,dest_ppa,GCCB);
+			validate_ppa(dest_ppa,lbas);
+#endif		
+			//printf("send_req gc dl is %ld\n",gc_deadline);	
+            send_req_cb(source_ppa,dest_ppa,GCCB,lbas,gc_deadline);
 			v_num++;
         }
         pidx++;
         page++;
     }
-	
+	printf("[chpgc]block num %d, invalid %d\n",target->block_num, _PPB - v_num);
 	//reset info.
     target->invalid_number = 0;
     target->now = 0;
  	memset(target->bitset,0,_PPB/8);
 	memset(target->oob_list,0,sizeof(target->oob_list));
-    page_ftl.li->trim_a_block(target->block_num*_PPB,ASYNC);
+    //page_ftl.li->trim_a_block(target->block_num*_PPB,ASYNC);
+	page_ftl.li->req_trim(target->block_num*_PPB,ASYNC,gc_deadline);
+    
+	
+	//swap rev and targ.
+    reserved = p->chip_actives_arr[chip_num]->reserved_blocks[mark];
+	p->chip_actives_arr[chip_num]->reserved_blocks[mark] = target;
 
-    //queue manipulation.(swap reserved with target block)
-    reserved = p->chip_actives_arr[mark]->reserved_block;
-	p->chip_actives_arr[mark]->reserved_block = target;
-	q_enqueue(reserved,p->chip_actives_arr[mark]->free_block_queue);
-	mh_insert_append(p->chip_actives_arr[mark]->free_block_maxheap,(void*)target);
-	pseudo_dl[mark] = 1;
+	//enqueue rsv on free_block_queue.
+	q_enqueue(reserved,p->chip_actives_arr[chip_num]->free_block_queue);
+	printf("qsize after enqueue : %d\n",p->chip_actives_arr[chip_num]->free_block_queue->size);
+	//enqueue temp to max heap
+	//mh_insert_append(p->chip_actives_arr[mark]->free_block_maxheap,(void*)reserved);
+	//printf("hsize after insert : %d\n",p->chip_actives_arr[mark]->free_block_maxheap->size);
+	pseudo_dl[chip_num] = 1;
 }
 
 void new_do_gc(){
@@ -390,17 +435,20 @@ retry:
 	return res;
 }
 
-ppa_t get_ppa_pinned(KEYT *lbas, int mark, int chip_num, int* chip_idx){
-	//imagine a task is pinned on chip 1~4.
+ppa_t get_ppa_pinned(KEYT *lbas, int mark, int chip_num, int* chip_idx, int gc_deadline){
+	//mark :: index for task, chip_num :: index for chip.
+	//gc_threshold and write page number is retrieved from global task_info parameter.
 	uint32_t res;
 	int target_idx;
 	int target_chip;
-	
+	bool BGC_INIT = false;
 	static uint32_t cnt = 0;
 	cnt++;
 	pm_body *p = (pm_body*)page_ftl.algo_body;
 	struct timeval gc_init;
 	struct timeval gc_end;
+	int gc_threshold = tinfo[mark].gc_threshold;
+	int task_wnum = tinfo[mark].num_op;
 retry:
 	//selection of target chip. use _g_cur_targ[mark] to track current target.
 	target_idx = _g_cur_targ[mark];
@@ -408,7 +456,8 @@ retry:
 	target_chip = chip_idx[target_idx];
 	//!end of selection.
 	res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[target_chip],target_chip,false);
-	//old logic. hard coded partitioning.
+	
+	//deprecated::hard coded partitioning.
 	/*
 	if(mark == 0) res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[target], target, false);
 	else if(mark == 1) res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[1], mark, false);
@@ -417,18 +466,40 @@ retry:
 		printf("A mark of this bench is not registered!\n");
 		abort();
 	}*/
-	//get a page by newly created get_page_num_pinned.
-
+#ifdef SCHEDGC
+	//check if it's time to initialize BGC.
+	if(BGC_INIT == false){
+		_g_cur_wnum[target_idx]++;
+		if (_g_cur_wnum[target_idx] >= (BPC *_PPB / 4 * 3)){//threshold 75%
+			BGC_INIT = true;
+		}
+	}
+	
+	//when cur_wnum reaches threshold, issue bgc to every target chip.
+	if(BGC_INIT == true && (_g_cur_wnum_task[mark] % (gc_threshold * task_wnum) == 0)){
+		for(int i=0;i<chip_num;i++){
+			int targ = chip_idx[i];
+			chip_gc_cb(mark,targ,gc_deadline);
+		}
+	}
+	if(res == UINT32_MAX){
+		printf("active GC running\n");
+		chip_gc_cb(mark,target_chip,-1);
+		goto retry;
+	}
+	_g_cur_wnum_task[mark]++;
+	
+#else
 
 	//if a page is not available, go through garbage collection.
 	if(res == UINT32_MAX){
 		gettimeofday(&(gc_init),NULL);
 		//chip_gc(mark);
-		chip_gc_cb(target_chip);
+		chip_gc_cb(target_chip, -1);
 		gettimeofday(&(gc_end),NULL);
 		goto retry;
 	}
-	validate_ppa(res,lbas);
+#endif
 	return res;
 }
 
@@ -442,6 +513,24 @@ void *page_gc_end_req(algo_req *input){
 			/*free value which is assigned by inf_get_valueset*/
 			inf_free_valueset(gv->value,FS_MALLOC_R);
 			free(gv);
+			break;
+		case GCCB:
+			/*update mapping && validate mapping bits.*/
+			pm_body* p = (pm_body*)page_ftl.algo_body;
+			KEYT t_lba = input->GCCB_lbas;
+			
+			//invalidate original ppa only if there was no update.
+			if(page_ftl.bm->is_valid_page(page_ftl.bm,input->GCCB_ppa_src)){
+				p->mapping[t_lba] = input->GCCB_ppa_des;
+				//invalidate_ppa(input->GCCB_ppa_src);
+				validate_ppa(input->GCCB_ppa_des,&(t_lba));
+			}
+			else{
+				/*this means that previously valid data is now invalid...*/
+				/*!!!do not change mapping!!!*/
+				//invalidate_ppa(input->GCCB_ppa_des);
+			}
+			//printf("lpa : %u, src : %u, des : %u\n",t_lba,input->GCCB_ppa_src,input->GCCB_ppa_des);
 			break;
 	}
 	free(input);
