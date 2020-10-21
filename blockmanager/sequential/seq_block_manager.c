@@ -450,10 +450,7 @@ int seq_get_page_num_pinned(struct blockmanager* bm, __chip *c, int mark, bool i
 	int reset = 0;
 	if(!isreserve){
 		if((b->now == _PPB) || (n[mark] == NULL)) { //cur block full or init.
-			//dequeue from fb queue(if possible), 
-			if (b->now == _PPB){//full block.
-				mh_insert_append(c->free_block_maxheap,(void*)b);
-			}
+
 			printf("cur maxheap is %d\n",c->free_block_maxheap->size);
 			n[mark] = (__block*)q_dequeue(c->free_block_queue);
 			if(n[mark] == NULL){//cannot reclaim (chip full)
@@ -461,6 +458,12 @@ int seq_get_page_num_pinned(struct blockmanager* bm, __chip *c, int mark, bool i
 				n[mark] = NULL;
 				return -1;
 			}
+			else{//if reclaimed, 
+				if(b->now == _PPB){//if cur block is full block,
+					mh_insert_append(c->free_block_maxheap,(void*)b);
+				}
+			}
+
 			c->now = n[mark]->block_num % BPC;
 		}//update c->now.
 	}

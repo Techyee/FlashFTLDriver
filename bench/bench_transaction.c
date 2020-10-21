@@ -9,7 +9,7 @@ extern master *_master;
 extern int KEYLENGTH;
 
 //real_req_num for each benchmark
-uint64_t _g_real_req_num[2] = {0, };
+uint64_t _g_real_req_num[5] = {0, };
 
 void bench_vectored_configure(){
 	_master->trans_configure.request_size=REQSIZE;

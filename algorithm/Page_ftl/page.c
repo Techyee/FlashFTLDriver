@@ -193,6 +193,7 @@ uint32_t page_flush(request *const req){
 void *page_end_req(algo_req* input){
 	//this function is called when the device layer(lower_info) finish the request.
 	page_params* params=(page_params*)input->params;
+	
 	switch(input->type){
 		case DATAW:
 			inf_free_valueset(params->value,FS_MALLOC_W);

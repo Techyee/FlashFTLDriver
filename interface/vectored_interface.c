@@ -102,6 +102,7 @@ uint32_t inf_vector_make_req(char *buf, void* (*end_req) (void*), uint32_t mark,
 
 void assign_vectored_req(vec_request *txn){
 	while(1){
+
 		pthread_mutex_lock(&flying_cnt_lock);
 		if(flying_cnt - (int32_t)txn->size < 0){
 			pthread_mutex_unlock(&flying_cnt_lock);
@@ -231,7 +232,6 @@ bool vectored_end_req (request * const req){
 		default:
 			abort();
 	}
-
 	release_each_req(req);
 	preq->done_cnt++;
 	if(preq->size==preq->done_cnt){
@@ -285,9 +285,15 @@ void* inf_main(void* arg){
 			break;
 		}
 		//calculate the deadline and pass to vectore request
-
+		
 		deadline = rt_start.tv_sec * 1000000 + rt_start.tv_usec + received->period;
 		gc_deadline = rt_start.tv_sec * 1000000 + rt_start.tv_usec + received->gc_threshold * received->period;
+		
+		if(received->period <= 500){
+			deadline = UINT32_MAX;
+			gc_deadline = deadline;
+		}
+		
 		inf_vector_make_req(value, bench_transaction_end_req, mark, deadline, gc_deadline, chip_num, chip_idx);
 		gettimeofday(&rt_end,NULL);
 		//!interface body

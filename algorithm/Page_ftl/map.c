@@ -5,7 +5,7 @@
 #include <limits.h>
 #include <unistd.h>
 extern algorithm page_ftl;
-extern task_info task1, task2, task3, task4;
+
 
 void page_map_create(){
 	pm_body *p=(pm_body*)calloc(sizeof(pm_body),1);

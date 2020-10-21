@@ -32,7 +32,7 @@ void seq_latency(uint32_t start, uint32_t end,int percentage, monitor *m);
 
 uint32_t keygenerator(uint32_t range);
 uint32_t keygenerator_type(uint32_t range, int type);
-pthread_mutex_t bench_lock;
+pthread_mutex_t bench_lock[32];
 uint8_t *bitmap;
 static void bitmap_set(uint32_t key){
 	uint32_t block=key/8;
@@ -62,7 +62,8 @@ void bench_init(){
 	memset(_master->li,0,sizeof(lower_info)*BENCHNUM);
 
 	_master->n_num=0; _master->m_num=0;
-	pthread_mutex_init(&bench_lock,NULL);
+	for(int i=0;i<32;i++)
+		pthread_mutex_init(&bench_lock[i],NULL);
 
 	for(int i=0; i<BENCHNUM; i++){
 		_master->m[i].empty=true;
@@ -571,21 +572,21 @@ void bench_cdf_print(uint64_t nor, uint8_t type, bench_data *_d){//number of req
 }
 #endif
 void bench_reap_nostart(request *const req){
-	pthread_mutex_lock(&bench_lock);
 	int idx=req->mark;
+	pthread_mutex_lock(&bench_lock[idx]);
 	monitor *_m=&_master->m[idx];
 	_m->r_num++;
 	//static int cnt=0;
-	pthread_mutex_unlock(&bench_lock);
+	pthread_mutex_unlock(&bench_lock[idx]);
 }
 
 void bench_reap_data(request *const req,lower_info *li){
 	//for cdf
 	measure_calc(&req->latency_checker);
-
-	pthread_mutex_lock(&bench_lock);
+	int mark = req->mark;
+	pthread_mutex_lock(&bench_lock[mark]);
 	if(!req){ 
-		pthread_mutex_unlock(&bench_lock);
+		pthread_mutex_unlock(&bench_lock[mark]);
 		return;
 	}
 	int idx=req->mark;
@@ -633,7 +634,7 @@ void bench_reap_data(request *const req,lower_info *li){
 		}
 		_m->r_num++;
 		_m->m_num++;
-		pthread_mutex_unlock(&bench_lock);
+		pthread_mutex_unlock(&bench_lock[mark]);
 		return;
 	}
 
@@ -662,7 +663,7 @@ void bench_reap_data(request *const req,lower_info *li){
 		free(_m->dbody[_m->r_num]);
 	}
 	_m->r_num++;
-	pthread_mutex_unlock(&bench_lock);
+	pthread_mutex_unlock(&bench_lock[mark]);
 }
 void bench_li_print(lower_info* li,monitor *m){
 	printf("-----lower_info----\n");

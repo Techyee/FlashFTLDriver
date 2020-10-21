@@ -27,8 +27,9 @@ mem_seg *seg_table;
 #if (LASYNC==1)
 queue *p_q;
 pthread_t t_id;
-
+pthread_t pipe_id;
 bool stopflag;
+bool pipe_startflag;
 #endif
 #define PPA_LIST_SIZE (240*1024)
 cl_lock *lower_flying;
@@ -40,10 +41,16 @@ char *result_addr;
 #define CHIP_NUM 16
 queue* req_station[16]; //!!hard coded for 4way 4chip.
 minh* req_minheap[16]; //!!hard coded form 4way 4chip.
+chip_info** cinfo;
 int req_station_init = 0;
+
 pthread_mutex_t cnt_lock;
-pthread_mutex_t profile_lock[4]; // cur task = 4. change if necessary
-FILE* pfs[4];
+pthread_mutex_t profile_lock[5]; // cur task = 5. change if necessary
+posix_request* chip_active_reqs[4] = {NULL, NULL, NULL, NULL};
+pthread_mutex_t bus_lock[4];
+pthread_mutex_t lookup_lock;
+
+FILE* pfs[5];
 int _g_req_cnt = 0;
 int flying_num[16] = {0, };
 //!my data
@@ -93,6 +100,52 @@ lower_info my_posix={
 
  uint32_t d_write_cnt, m_write_cnt, gcd_write_cnt, gcm_write_cnt;
 
+void use_bus(int idx, posix_request* active){
+	int next = -1;
+	int null_cnt = 0;
+	struct timeval init;
+	struct timeval end;
+
+	gettimeofday(&(init),NULL);
+	pthread_mutex_lock(&lookup_lock);
+	chip_active_reqs[idx] = active;
+	for(int i=1;i<4;i++){
+		if(chip_active_reqs[(idx+i) % 4] == NULL){
+			null_cnt++;
+		}
+	}
+	if (null_cnt == 3){//free bus
+		for(int i=1;i<4;i++){
+			pthread_mutex_lock(&bus_lock[(idx+i)%4]);
+		}
+	}//lock them all.
+	pthread_mutex_unlock(&lookup_lock);
+	pthread_mutex_lock(&bus_lock[idx]);
+
+	usleep(1);//latency.
+
+	pthread_mutex_lock(&lookup_lock);
+	chip_active_reqs[idx] = NULL;
+	for(int i=0;i<3;i++){
+		if(chip_active_reqs[(idx+i) % 4] != NULL){
+			next = (idx+i) % 4;
+			break;
+		}
+	}//try to find next target.
+	pthread_mutex_unlock(&lookup_lock);
+
+	if(next == -1){//notfound...
+		pthread_mutex_unlock(&bus_lock[0]);
+		pthread_mutex_unlock(&bus_lock[1]);
+		pthread_mutex_unlock(&bus_lock[2]);
+		pthread_mutex_unlock(&bus_lock[3]);
+	}
+	else{
+		pthread_mutex_unlock(&bus_lock[next]);
+	}
+	gettimeofday(&(end),NULL);
+	//printf("chip %d, bus time taken : %ld\n",active->trim_mark, (end.tv_sec - init.tv_sec)*1000000 + (end.tv_usec - init.tv_usec));
+}
 
 //minheap fuctions for EDF-style request picking.
 void req_mh_swap_hptr(void *a, void *b){
@@ -117,7 +170,7 @@ int req_get_cnt(void *a){
 
 #if (LASYNC==1)
 void *l_main(void *__input){
-
+	pipe_startflag = false;
 	posix_request *inf_req;
 	int target_chip;
 	int req_num = 0;
@@ -129,24 +182,31 @@ void *l_main(void *__input){
 	}
 
 	//cinfo init.
-	chip_info** cinfo = (chip_info**)malloc(sizeof(chip_info*) * CHIP_NUM);
+	cinfo = (chip_info**)malloc(sizeof(chip_info*) * CHIP_NUM);
 	for(int i=0;i<CHIP_NUM;i++){
 		cinfo[i] = (chip_info*)malloc(sizeof(chip_info));
 		cinfo[i]->latency = cl_init(QDEPTH,true);
 		pthread_mutex_init(&(cinfo[i]->chip_heap_lock),NULL);
+		pthread_mutex_init(&(cinfo[i]->chip_busy),NULL);
 		cinfo[i]->mark = i;
 	}
 	//!inited
 
 	//profile directory (file) initiation (hardcoded to 4 task)
-	for(int i=0;i<4;i++)
+	for(int i=0;i<5;i++)
 		pthread_mutex_init(&(profile_lock[i]),NULL);
 	//open a profile csv.
-	for(int i=0;i<4;i++){
+	for(int i=0;i<5;i++){
 		char name[100];
 		sprintf(name,"[bench %d]profile.csv",i);
 		pfs[i] = fopen(name,"w");
 	}
+	//!inited.
+
+	//data bus lock init
+	for(int i=0;i<4;i++)
+		pthread_mutex_init(&(bus_lock[i]),NULL);
+	pthread_mutex_init(&(lookup_lock),NULL);
 	//!inited.
 
 	//chip main initiation(threads)
@@ -160,7 +220,7 @@ void *l_main(void *__input){
 	while(1){
 		if(stopflag){
 			printf("posix bye bye! processed req num : %d\n",req_num);
-			for(int i=0;i<4;i++)
+			for(int i=0;i<5;i++)
 				fclose(pfs[i]);	
 			pthread_exit(NULL);
 			break;
@@ -172,11 +232,10 @@ void *l_main(void *__input){
 		} 
 #ifdef LATENCY //latency mode. l_main serves as a splitter for each chip.
 		target_chip = inf_req->trim_mark;
-		
 		switch(inf_req->type){
 			case FS_LOWER_W:
 				pthread_mutex_lock(&(cinfo[target_chip]->chip_heap_lock));
-				minh_insert_append(req_minheap[inf_req->upper_req->mark],(void*)inf_req);
+				minh_insert_append(req_minheap[target_chip],(void*)inf_req);
 				pthread_mutex_unlock(&(cinfo[target_chip]->chip_heap_lock));
 				gettimeofday(&(inf_req->dev_init_t),NULL);
 				//q_enqueue((void*)inf_req,req_station[target_chip]);
@@ -186,7 +245,7 @@ void *l_main(void *__input){
 
 			case FS_LOWER_R:
 				pthread_mutex_lock(&(cinfo[target_chip]->chip_heap_lock));
-				minh_insert_append(req_minheap[inf_req->upper_req->mark],(void*)inf_req);
+				minh_insert_append(req_minheap[target_chip],(void*)inf_req);
 				pthread_mutex_unlock(&(cinfo[target_chip]->chip_heap_lock));
 				gettimeofday(&(inf_req->dev_init_t),NULL);
 				//q_enqueue((void*)inf_req,req_station[target_chip]);
@@ -263,17 +322,12 @@ void *new_latency_main(void *arg){ //latency generater main code.
 		//active = (posix_request*)q_dequeue(req_station[recv->mark]);
 		minh_construct(req_minheap[recv->mark]);
 		active = (posix_request*)minh_get_min(req_minheap[recv->mark]);
-		//if(active->type == FS_LOWER_C){
-		//	printf("doing cpb, deadline : %u\n",active->deadline);
-		//}
-		//else if(active->type == FS_LOWER_T){
-		//	printf("doing trim, deadline : %u\n",active->deadline);
-		//}
 		pthread_mutex_unlock(&(recv->chip_heap_lock));
 		
 		if(active != NULL){
 			switch(active->type){
 				case FS_LOWER_W:
+					use_bus(recv->mark,active);
 					usleep(500);
 					posix_push_data(active->key, active->size, active->value, active->isAsync, active->upper_req);
 					gettimeofday(&(active->dev_end_t),NULL);
@@ -304,12 +358,12 @@ void *new_latency_main(void *arg){ //latency generater main code.
 						fprintf(pfs[active->bench_idx],"%ld, %ld, %ld, %ld, %ld\n",recv->mark, active->bench_idx, algo_elapse, lower_elapse, dev_elapse);
 						pthread_mutex_unlock(&(profile_lock[active->bench_idx]));
 					}
+					use_bus(recv->mark,active);
 					free(active);
 					active = NULL;
 					break;
 
 				case FS_LOWER_T:
-					
 					usleep(5000);
 					posix_trim_a_block(active->key, active->isAsync);
 					gettimeofday(&(active->dev_end_t),NULL);
@@ -318,7 +372,6 @@ void *new_latency_main(void *arg){ //latency generater main code.
 					break;
 
 				case FS_LOWER_C:
-				
 					usleep(550);
 					posix_copyback(active->key,active->key2,active->size,active->isAsync,active->upper_req);
 					gettimeofday(&(active->dev_end_t),NULL);
@@ -621,7 +674,7 @@ void *posix_copyback(uint32_t _PPA, uint32_t _PPA2, uint32_t size, bool async,al
 	//pull data.
 	if(!seg_table[PPA].storage){
 		printf("%u not populated!\n",PPA);
-		abort();
+		//abort();
 	} else {
 		memcpy(value->value,seg_table[PPA].storage,PAGESIZE);
 	}
@@ -631,7 +684,7 @@ void *posix_copyback(uint32_t _PPA, uint32_t _PPA2, uint32_t size, bool async,al
 	}
 	else{
 		printf("storage is already malloc-ed...\n");
-		abort();
+		//abort();
 	}
 	
 	my_posix.req_type_cnt[GCCB]++;
@@ -675,7 +728,7 @@ void *posix_push_data(uint32_t _PPA, uint32_t size, value_set* value, bool async
 	}
 	else{
 		printf("storage is already malloc-ed...\n");
-		abort();
+		//abort();
 	}
 	memcpy(seg_table[PPA].storage,value->value,size);
 	req->end_req(req);

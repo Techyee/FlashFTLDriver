@@ -362,7 +362,7 @@ void inf_init(int apps_flag, int total_num,int argc, char **argv){
 		t->master=&mp;
 
 
-		q_init(&t->req_q,QSIZE);
+		q_init(&t->req_q,QSIZE*10);
 		q_init(&t->retry_q,1);
 
 #ifdef interface_vector

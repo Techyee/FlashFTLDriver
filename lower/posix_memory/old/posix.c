@@ -17,7 +17,7 @@
 #include <limits.h>
 //#include <readline/readline.h>
 //#include <readline/history.h>
-
+extern struct blockmanager seq_bm;
 pthread_mutex_t fd_lock;
 mem_seg *seg_table;
 #if (ASYNC==1)

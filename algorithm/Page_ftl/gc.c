@@ -77,11 +77,10 @@ void send_req_cb(uint32_t ppa, uint32_t ppa2, uint8_t type, KEYT* lbas, int gc_d
 	my_req->GCCB_ppa_des = ppa2;
 	my_req->GCCB_ppa_src = ppa;
 	my_req->deadline = gc_deadline-1;//to make sure trim is issued after CPB finishes.
-	if(gc_deadline == -1)
+	if(gc_deadline == -1)//only on-demand GC run.
 		my_req->deadline = 1;
 	memcpy(&(my_req->GCCB_lbas),lbas,sizeof(KEYT));
 	my_req->end_req=page_gc_end_req;
-
 	//assing pseudo deadline.
 	//my_req->deadline = pseudo_dl[my_req->mark];
 	//pseudo_dl[my_req->mark]++;
@@ -185,14 +184,13 @@ void chip_gc_cb(int mark, int chip_num, int gc_deadline){
     mh_construct(p->chip_actives_arr[chip_num]->free_block_maxheap);
 	if(p->chip_actives_arr[chip_num]->free_block_maxheap->size > 0){
 		target = (__block*)mh_get_max(p->chip_actives_arr[chip_num]->free_block_maxheap);
-		printf("BGC can be scheduled.\n");
+		printf("[deq]cur maxheap size is %d\n",p->chip_actives_arr[chip_num]->free_block_maxheap->size);
 	}
 	else{
 		target = NULL;
 	}
 
 	if(target == NULL){
-		printf("BGC X scheduled.\n");
 		return;
 	}
 	__block* reserved;
@@ -225,8 +223,7 @@ void chip_gc_cb(int mark, int chip_num, int gc_deadline){
             dest_ppa = page_map_gc_update_chip(lbas,L2PGAP,mark);
 			validate_ppa(dest_ppa,lbas);
 #endif		
-			//printf("send_req gc dl is %ld\n",gc_deadline);	
-            send_req_cb(source_ppa,dest_ppa,GCCB,lbas,gc_deadline);
+		    send_req_cb(source_ppa,dest_ppa,GCCB,lbas,gc_deadline);
 			v_num++;
         }
         pidx++;
@@ -476,7 +473,7 @@ retry:
 	}
 	
 	//when cur_wnum reaches threshold, issue bgc to every target chip.
-	if(BGC_INIT == true && (_g_cur_wnum_task[mark] % (gc_threshold * task_wnum) == 0)){
+	if(BGC_INIT == true && (_g_cur_wnum_task[mark] % (gc_threshold * task_wnum) == 0) && gc_threshold >= 0){
 		for(int i=0;i<chip_num;i++){
 			int targ = chip_idx[i];
 			chip_gc_cb(mark,targ,gc_deadline);

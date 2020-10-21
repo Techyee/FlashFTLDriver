@@ -29,6 +29,7 @@ uint32_t convert_ppa(uint32_t);
 
 //my functions
 void *new_latency_main(void *__input);
+void *pipe_main(void *arg);
 void* posix_make_copyback(uint32_t ppa, uint32_t ppa2, uint32_t size, bool async,algo_req * const req);
 void* posix_copyback(uint32_t ppa, uint32_t ppa2, uint32_t size, bool async,algo_req * const req);
 void* posix_make_req_trim(uint32_t ppa, bool async, uint32_t gc_deadline);
@@ -57,6 +58,7 @@ typedef struct mem_seg {
 typedef struct _chip_info{
 	pthread_t chip_pid;
 	pthread_mutex_t chip_heap_lock;
+	pthread_mutex_t chip_busy;
 	cl_lock* latency;
 	int mark;
 }chip_info;
