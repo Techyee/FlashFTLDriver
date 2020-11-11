@@ -156,7 +156,7 @@ struct lower_info {
 	void (*lower_show_info)();
 	uint32_t (*lower_tag_num)();
 	//my function
-	void* (*req_trim)(uint32_t ppa, bool async,uint32_t gc_deadline);
+	void* (*req_trim)(uint32_t ppa, bool async,uint32_t gc_deadline,int bench_idx);
 	void* (*copyback)(uint32_t PPA, uint32_t PPA2, uint32_t size, bool async,algo_req * const req);
 #ifdef Lsmtree
 	void* (*read_hw)(uint32_t ppa, char *key,uint32_t key_len, value_set *value,bool async,algo_req * const req);
@@ -304,6 +304,7 @@ typedef struct _task_info{
 	int gc_threshold;
 	int chip_num;
 	int* chip_idx;
+	int type;
 }task_info;
 
 #define for_each_block(segs,block,idx)\

@@ -289,11 +289,6 @@ void* inf_main(void* arg){
 		deadline = rt_start.tv_sec * 1000000 + rt_start.tv_usec + received->period;
 		gc_deadline = rt_start.tv_sec * 1000000 + rt_start.tv_usec + received->gc_threshold * received->period;
 		
-		if(received->period <= 500){
-			deadline = UINT32_MAX;
-			gc_deadline = deadline;
-		}
-		
 		inf_vector_make_req(value, bench_transaction_end_req, mark, deadline, gc_deadline, chip_num, chip_idx);
 		gettimeofday(&rt_end,NULL);
 		//!interface body

@@ -69,7 +69,7 @@ gc_value* send_req(uint32_t ppa, uint8_t type, value_set *value){
 	return res;
 }
 
-void send_req_cb(uint32_t ppa, uint32_t ppa2, uint8_t type, KEYT* lbas, int gc_deadline){
+void send_req_cb(uint32_t ppa, uint32_t ppa2, uint8_t type, KEYT* lbas, int gc_deadline, int bench_idx){
 	algo_req *my_req = (algo_req*)malloc(sizeof(algo_req));
 	my_req->parents = NULL;
 	my_req->type = type;
@@ -81,6 +81,7 @@ void send_req_cb(uint32_t ppa, uint32_t ppa2, uint8_t type, KEYT* lbas, int gc_d
 		my_req->deadline = 1;
 	memcpy(&(my_req->GCCB_lbas),lbas,sizeof(KEYT));
 	my_req->end_req=page_gc_end_req;
+	my_req->bench_idx = bench_idx;
 	//assing pseudo deadline.
 	//my_req->deadline = pseudo_dl[my_req->mark];
 	//pseudo_dl[my_req->mark]++;
@@ -101,9 +102,6 @@ void chip_gc(int mark){ //!!hard coded for (PAGESIZE == LPAGESIZE) case!!
 	
 	mh_construct(p->chip_actives_arr[mark]->free_block_maxheap);
 	__block* target = (__block*)mh_get_max(p->chip_actives_arr[mark]->free_block_maxheap);
-	//static int targ_block = 1;
-	//__block* target = p->chip_actives_arr[mark]->blocks[targ_block];
-	//targ_block = (targ_block + 1) % BPC;
 	printf("target block grabbed %d\n",target->block_num);
 	//params
 	__block* reserved;
@@ -184,7 +182,6 @@ void chip_gc_cb(int mark, int chip_num, int gc_deadline){
     mh_construct(p->chip_actives_arr[chip_num]->free_block_maxheap);
 	if(p->chip_actives_arr[chip_num]->free_block_maxheap->size > 0){
 		target = (__block*)mh_get_max(p->chip_actives_arr[chip_num]->free_block_maxheap);
-		printf("[deq]cur maxheap size is %d\n",p->chip_actives_arr[chip_num]->free_block_maxheap->size);
 	}
 	else{
 		target = NULL;
@@ -223,7 +220,7 @@ void chip_gc_cb(int mark, int chip_num, int gc_deadline){
             dest_ppa = page_map_gc_update_chip(lbas,L2PGAP,mark);
 			validate_ppa(dest_ppa,lbas);
 #endif		
-		    send_req_cb(source_ppa,dest_ppa,GCCB,lbas,gc_deadline);
+		    send_req_cb(source_ppa,dest_ppa,GCCB,lbas,gc_deadline,mark);
 			v_num++;
         }
         pidx++;
@@ -236,7 +233,7 @@ void chip_gc_cb(int mark, int chip_num, int gc_deadline){
  	memset(target->bitset,0,_PPB/8);
 	memset(target->oob_list,0,sizeof(target->oob_list));
     //page_ftl.li->trim_a_block(target->block_num*_PPB,ASYNC);
-	page_ftl.li->req_trim(target->block_num*_PPB,ASYNC,gc_deadline);
+	page_ftl.li->req_trim(target->block_num*_PPB,ASYNC,gc_deadline,mark);
     
 	
 	//swap rev and targ.
@@ -245,10 +242,9 @@ void chip_gc_cb(int mark, int chip_num, int gc_deadline){
 
 	//enqueue rsv on free_block_queue.
 	q_enqueue(reserved,p->chip_actives_arr[chip_num]->free_block_queue);
-	printf("qsize after enqueue : %d\n",p->chip_actives_arr[chip_num]->free_block_queue->size);
+	//printf("[chip %d]current free_queue_blocks : %d\n",chip_num,p->chip_actives_arr[chip_num]->free_block_queue->size);
 	//enqueue temp to max heap
 	//mh_insert_append(p->chip_actives_arr[mark]->free_block_maxheap,(void*)reserved);
-	//printf("hsize after insert : %d\n",p->chip_actives_arr[mark]->free_block_maxheap->size);
 	pseudo_dl[chip_num] = 1;
 }
 
@@ -444,8 +440,18 @@ ppa_t get_ppa_pinned(KEYT *lbas, int mark, int chip_num, int* chip_idx, int gc_d
 	pm_body *p = (pm_body*)page_ftl.algo_body;
 	struct timeval gc_init;
 	struct timeval gc_end;
-	int gc_threshold = tinfo[mark].gc_threshold;
 	int task_wnum = tinfo[mark].num_op;
+	int task_chip_num = tinfo[mark].chip_num;
+
+	//deciding background gc.(operate = 50%, therefore, page_num = _PPB/2)
+	int bgc_threshold = (_PPB/2)*task_chip_num/task_wnum;
+	int bgc_period = bgc_threshold * task_wnum;
+	//printf("[bench %d]bgc_threshold = %d,bgc_period = %d\n",mark,bgc_threshold,bgc_period);
+	if (bgc_threshold == 0)
+		bgc_period = _PPB/2*task_chip_num;
+	bool bgc = true;
+	if(tinfo[mark].gc_threshold == -1)
+		bgc = false;
 retry:
 	//selection of target chip. use _g_cur_targ[mark] to track current target.
 	target_idx = _g_cur_targ[mark];
@@ -471,9 +477,8 @@ retry:
 			BGC_INIT = true;
 		}
 	}
-	
 	//when cur_wnum reaches threshold, issue bgc to every target chip.
-	if(BGC_INIT == true && (_g_cur_wnum_task[mark] % (gc_threshold * task_wnum) == 0) && gc_threshold >= 0){
+	if((BGC_INIT == true) && (_g_cur_wnum_task[mark] % (bgc_period) == 0) && (bgc == true) && (mark != 4)){
 		for(int i=0;i<chip_num;i++){
 			int targ = chip_idx[i];
 			chip_gc_cb(mark,targ,gc_deadline);
@@ -485,7 +490,6 @@ retry:
 		goto retry;
 	}
 	_g_cur_wnum_task[mark]++;
-	
 #else
 
 	//if a page is not available, go through garbage collection.

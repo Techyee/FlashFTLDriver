@@ -79,7 +79,7 @@ CFLAGS +=\
 		 -D_DEFAULT_SOURCE\
 		 -D_BSD_SOURCE\
 -DBENCH\
--DCDF\
+
 
 SRCS +=\
 	./interface/queue.c\

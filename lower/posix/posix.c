@@ -158,7 +158,7 @@ void *posix_pull_data(uint32_t PPA, uint32_t size, value_set* value, bool async,
 		printf("dmatag -1 error!\n");
 		abort();
 	}
-
+	/*
 	pthread_mutex_lock(&fd_lock);
 	//if(((lsm_params*)req->params)->lsm_type!=4){
 	if(lseek64(_fd,((off64_t)my_posix.SOP)*PPA,SEEK_SET)==-1){
@@ -183,7 +183,7 @@ void *posix_pull_data(uint32_t PPA, uint32_t size, value_set* value, bool async,
     MA(&lowerTime);
 #endif
 	pthread_mutex_unlock(&fd_lock);
-
+	*/
 	req->end_req(req);
 	/*
 	if(async){

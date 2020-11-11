@@ -6,6 +6,7 @@
 #define FS_LOWER_R 2
 #define FS_LOWER_T 3
 #define FS_LOWER_C 4
+#define FS_LOWER_MISS 5
 
 uint32_t posix_create(lower_info*,blockmanager *);
 void *posix_destroy(lower_info*);
@@ -32,7 +33,8 @@ void *new_latency_main(void *__input);
 void *pipe_main(void *arg);
 void* posix_make_copyback(uint32_t ppa, uint32_t ppa2, uint32_t size, bool async,algo_req * const req);
 void* posix_copyback(uint32_t ppa, uint32_t ppa2, uint32_t size, bool async,algo_req * const req);
-void* posix_make_req_trim(uint32_t ppa, bool async, uint32_t gc_deadline);
+void* posix_make_req_trim(uint32_t ppa, bool async, uint32_t gc_deadline, int bench_idx);
+
 typedef struct posix_request {
 	void * hptr;
 	uint32_t deadline;
@@ -42,7 +44,12 @@ typedef struct posix_request {
 	struct timeval l_init_t;
 	struct timeval dev_init_t;
 	struct timeval dev_end_t;
+	uint32_t dev_req_t; //record how much user req blocked.
+	uint32_t dev_gc_t; //record how much gc blocked.
+	uint32_t dev_intGC_t; //record how much interference is occured(from other request)
+	uint32_t dev_intIO_t;
 	FSTYPE type;
+	FSTYPE old_type;
 	uint32_t key;
 	uint32_t key2;
 	value_set *value;

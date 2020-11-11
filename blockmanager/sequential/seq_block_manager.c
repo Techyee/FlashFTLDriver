@@ -450,8 +450,6 @@ int seq_get_page_num_pinned(struct blockmanager* bm, __chip *c, int mark, bool i
 	int reset = 0;
 	if(!isreserve){
 		if((b->now == _PPB) || (n[mark] == NULL)) { //cur block full or init.
-
-			printf("cur maxheap is %d\n",c->free_block_maxheap->size);
 			n[mark] = (__block*)q_dequeue(c->free_block_queue);
 			if(n[mark] == NULL){//cannot reclaim (chip full)
 				printf("[bench %d] chip is full\n",mark);

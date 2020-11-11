@@ -184,7 +184,7 @@ static inline bool KEYVALCHECK(KEYT a){
 //#define BUSE_ASYNC 0
 
 //mydefinition
-#define NUM_RSV 5
+#define NUM_RSV 7
 
 #ifndef __GNUG__
 typedef enum{false,true} bool;

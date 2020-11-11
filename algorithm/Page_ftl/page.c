@@ -58,6 +58,7 @@ inline void send_user_req(request *const req, uint32_t type, ppa_t ppa,value_set
 	
 	switch(type){
 		case DATAR:
+			//printf("read goes to %d\n",my_req->mark);
 			page_ftl.li->read(ppa,PAGESIZE,value,ASYNC,my_req);
 			break;
 		case DATAW:
@@ -67,6 +68,7 @@ inline void send_user_req(request *const req, uint32_t type, ppa_t ppa,value_set
 }
 
 uint32_t page_read(request *const req){
+	//now we override read target to assume worst case!!
 	gettimeofday(&(req->algo_init_t),NULL);
 	uint32_t deadline = req->deadline;
 	value_set *cached_value=buffer->get(req->key);
@@ -81,7 +83,7 @@ uint32_t page_read(request *const req){
 		}
 	}
 
-	//printf("read key :%u\n",req->key);
+	//printf("read key :%u",req->key);
 
 	if(cached_value){
 		memcpy(req->value->value, cached_value->value, 4096);
@@ -92,10 +94,13 @@ uint32_t page_read(request *const req){
 
 		DPRINTF("\t\tmap info : %u->%u\n", req->key, req->value->ppa);
 		if(req->value->ppa==UINT32_MAX){
-			req->type=FS_NOTFOUND_T;
-			req->end_req(req);
+			//req->type=FS_NOTFOUND_T;
+			//req->end_req(req);
+			req->value->ppa = req->key * 2; //assume ppa == key(ppa override!!)
+			send_user_req(req, DATAR, req->value->ppa/L2PGAP, req->value, deadline);
 		}
 		else{
+			req->value->ppa = req->key * 2; //assume ppa == key(ppa override!!)
 			send_user_req(req, DATAR, req->value->ppa/L2PGAP, req->value, deadline);
 		}
 	}
