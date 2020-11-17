@@ -17,11 +17,11 @@ typedef struct page_map_body{
 
 void page_map_create();
 uint32_t page_map_assign(KEYT *lba);
-uint32_t page_map_assign_pinned(KEYT *lba, int mark, int chip_num, int* chip_idx, int gc_deadline);
+uint32_t page_map_assign_pinned(KEYT *lba, int mark, int chip_num, int* chip_idx, int gc_deadline, int IOtype, int checkGC);
 uint32_t page_map_pick(uint32_t lba);
 uint32_t page_map_trim(uint32_t lba);
 uint32_t page_map_gc_update(KEYT* lba, uint32_t idx);
-uint32_t page_map_gc_update_chip(KEYT *lba, uint32_t idx, int chip_num);
+uint32_t page_map_gc_update_chip(KEYT *lba, uint32_t idx, int mark, int chip_num, int gc_init);
 uint32_t page_map_gc_noupdate(KEYT *lba, uint32_t idx, int mark, int chip_num, int gc_init);
 
 void page_map_free();

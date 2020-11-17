@@ -104,6 +104,7 @@ e:for application req*/
 	struct vectored_request *parents;
 
 	//my data
+	uint32_t start;
 	uint32_t deadline;
 	uint32_t gc_deadline;
 	int* alloc_chip;
@@ -111,6 +112,8 @@ e:for application req*/
 	struct timeval inf_start;
 	struct timeval inf_end;
 	struct timeval algo_init_t;
+	int IOtype;
+	int do_gc;
 };
 //end of request structure.
 
@@ -127,11 +130,13 @@ struct algo_req{
 	struct timeval algo_init_t;
 	struct timeval l_start;
 	uint8_t mark;
+	uint32_t start;
 	int32_t deadline;
 	uint8_t bench_idx;
 	KEYT GCCB_lbas;
 	uint32_t GCCB_ppa_des;
 	uint32_t GCCB_ppa_src;
+	int IOtype;
 	//!my data
 
 	//0: normal, 1 : no tag, 2: read delay 4:write delay
@@ -156,7 +161,7 @@ struct lower_info {
 	void (*lower_show_info)();
 	uint32_t (*lower_tag_num)();
 	//my function
-	void* (*req_trim)(uint32_t ppa, bool async,uint32_t gc_deadline,int bench_idx);
+	void* (*req_trim)(uint32_t ppa, bool async,uint32_t gc_deadline,int bench_idx, int IOtype);
 	void* (*copyback)(uint32_t PPA, uint32_t PPA2, uint32_t size, bool async,algo_req * const req);
 #ifdef Lsmtree
 	void* (*read_hw)(uint32_t ppa, char *key,uint32_t key_len, value_set *value,bool async,algo_req * const req);
@@ -306,6 +311,20 @@ typedef struct _task_info{
 	int* chip_idx;
 	int type;
 }task_info;
+
+typedef struct _cluster{
+	int task_num;
+	int* task_idx;
+	int chip_num;
+	int* chip_idx;
+	float cluster_util_left;
+}cluster_info;
+
+typedef struct _cluster_status{
+	int cluster_num;
+	uint32_t* tbs_deadlines;
+	int* cluster_cur_wnum;
+}cluster_status;
 
 #define for_each_block(segs,block,idx)\
 	for(idx=0,block=segs->blocks[idx];idx<BPS; block=++idx>BPS?segs->blocks[idx-1]:segs->blocks[idx])

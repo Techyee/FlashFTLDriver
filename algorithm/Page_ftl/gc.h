@@ -21,4 +21,4 @@ void chip_gc(int mark);
 void *page_gc_end_req(algo_req *input);
 
 //my function
-ppa_t get_ppa_pinned(KEYT* lba, int mark, int chip_num, int* chip_idx, int gc_deadline);
+ppa_t get_ppa_pinned(KEYT* lba, int mark, int chip_num, int* chip_idx, int gc_deadline, int IOtype, int checkGC);

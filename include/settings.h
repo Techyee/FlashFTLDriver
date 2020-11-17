@@ -51,8 +51,9 @@
 #elif defined(SLC)
 
 #define GIGAUNIT 1L
-#define OP 0
+//#define OP 33
 #define SHOWINGSIZE (GIGAUNIT * G)
+//#define TOTALSIZE (SHOWINGSIZE + SHOWINGSIZE/100*(100-OP))
 #define TOTALSIZE (SHOWINGSIZE + SHOWINGSIZE)
 #define REALSIZE (512L*G)
 #define DEVSIZE (64L * G)
@@ -87,7 +88,17 @@
 #define WAY 4
 #define _NOC (CHN*WAY)
 #define BPC (_NOB/_NOC)
+#define RT 1
+#define TBS 2
+#define DUMMY 3
+#define BG 4
 
+//defs for I/O latency model
+#define W_LTN 500
+#define R_LTN 50
+#define E_LTN 5000
+#define D_LTN 40
+#define GC_LTN (550*128 + 5000)
 #define RANGE (SHOWINGSIZE/8/K)
 #define DEVFULL ((uint32_t)TOTALSIZE/LPAGESIZE)
 
@@ -184,7 +195,7 @@ static inline bool KEYVALCHECK(KEYT a){
 //#define BUSE_ASYNC 0
 
 //mydefinition
-#define NUM_RSV 7
+#define NUM_RSV 8
 
 #ifndef __GNUG__
 typedef enum{false,true} bool;

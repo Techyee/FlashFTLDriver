@@ -51,11 +51,12 @@ inline void send_user_req(request *const req, uint32_t type, ppa_t ppa,value_set
 	uint32_t target_chip = ppa / (BPC * _PPB);
 	my_req->mark = target_chip;
 	my_req->bench_idx = req->mark;
+	my_req->start = req->start;
 	my_req->deadline = deadline;
 	//record the algo_init_t inside algo_req.
 	my_req->algo_init_t.tv_sec = req->algo_init_t.tv_sec;
 	my_req->algo_init_t.tv_usec = req->algo_init_t.tv_usec;
-	
+	my_req->IOtype = req->IOtype;
 	switch(type){
 		case DATAR:
 			//printf("read goes to %d\n",my_req->mark);
@@ -122,7 +123,7 @@ uint32_t align_buffering(request *const req, KEYT key, value_set *value, uint32_
 	if(a_buffer.idx==L2PGAP){
 		//TTC allocation version must differentiate mapping!
 #ifdef TTCalloc
-		ppa_t ppa=page_map_assign_pinned(a_buffer.key, req->mark, req->alloc_chip_num, req->alloc_chip, req->gc_deadline);
+		ppa_t ppa=page_map_assign_pinned(a_buffer.key, req->mark, req->alloc_chip_num, req->alloc_chip, req->gc_deadline, req->IOtype,req->do_gc);
 #else
 		ppa_t ppa=page_map_assign(a_buffer.key);
 #endif
@@ -133,6 +134,7 @@ uint32_t align_buffering(request *const req, KEYT key, value_set *value, uint32_
 			memcpy(&value->value[i*4096], a_buffer.value[i]->value, 4096);
 			inf_free_valueset(a_buffer.value[i], FS_MALLOC_W);
 		}
+		//printf("key vs ppa : %u, %u\n",req->key,ppa);
 		send_user_req(req, DATAW, ppa, value, _deadline);
 		a_buffer.idx=0;
 	}

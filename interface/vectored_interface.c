@@ -11,11 +11,25 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
+
+#define doGC 1
+#define notGC 0
+//my data(cluster info & dummy lock)
+extern cluster_info* cluster_def;
+extern cluster_status* cluster_stat;
+extern int cluster_num;
+extern int rt_num;
+extern int reclaim_page;
+extern task_info* tinfo;
+extern struct timeval _g_tbs_start;
+
 extern master_processor mp;
 extern bool force_write_start;
 extern tag_manager *tm;
-static int32_t flying_cnt = QDEPTH;
-static pthread_mutex_t flying_cnt_lock=PTHREAD_MUTEX_INITIALIZER; 
+static int32_t flying_cnt = QDEPTH*50;
+static pthread_mutex_t flying_cnt_lock=PTHREAD_MUTEX_INITIALIZER;
+static int32_t flying_cnt_bg = QDEPTH;
+static pthread_mutex_t flying_cnt_lock_bg = PTHREAD_MUTEX_INITIALIZER;
 bool vectored_end_req (request * const req);
 /*request-length request-size tid*/
 /*type key-len key offset length value*/
@@ -30,7 +44,9 @@ void* inf_transaction_end_req(void *req);
 extern bool TXN_debug;
 extern char *TXN_debug_ptr;
 static uint32_t seq_val;
-uint32_t inf_vector_make_req(char *buf, void* (*end_req) (void*), uint32_t mark, uint32_t deadline, uint32_t gc_deadline, int chip_num, int* chip_idx){
+
+uint32_t inf_vector_make_req(char *buf, void* (*end_req) (void*), uint32_t mark, uint32_t deadline, 
+							 uint32_t gc_deadline, int chip_num, int* chip_idx, int IOtype, int checkGC, int start){
 	static uint32_t seq_num=0;
 	uint32_t idx=0;
 	vec_request *txn=(vec_request*)malloc(sizeof(vec_request));
@@ -52,6 +68,7 @@ uint32_t inf_vector_make_req(char *buf, void* (*end_req) (void*), uint32_t mark,
 		temp->parents=txn;
 		temp->type=*(uint8_t*)buf_parser(buf, &idx, sizeof(uint8_t));
 		temp->end_req=vectored_end_req;
+		temp->start = start;
 		temp->deadline = deadline;
 		temp->gc_deadline = gc_deadline;
 		temp->params=NULL;
@@ -60,6 +77,9 @@ uint32_t inf_vector_make_req(char *buf, void* (*end_req) (void*), uint32_t mark,
 		temp->seq=seq++;
 		temp->alloc_chip_num = chip_num;
 		temp->alloc_chip = (int*)malloc(sizeof(int)*chip_num);
+		//for TBS
+		temp->IOtype = IOtype;
+		temp->do_gc = checkGC;
 		for(int j=0;j<chip_num;j++){
 			temp->alloc_chip[j] = chip_idx[j];
 		}
@@ -95,16 +115,21 @@ uint32_t inf_vector_make_req(char *buf, void* (*end_req) (void*), uint32_t mark,
 		temp->offset=*(uint32_t*)buf_parser(buf, &idx, sizeof(uint32_t));
 		
 	}
-
+	request *temp=&txn->req_array[0];
 	assign_vectored_req(txn);
+	
 	return 1;
 }
 
 void assign_vectored_req(vec_request *txn){
+	struct timeval start;
+	struct timeval end;
+	gettimeofday(&start,NULL);
 	while(1){
-
+		//printf("flyng_cnt is %d\n",flying_cnt);
 		pthread_mutex_lock(&flying_cnt_lock);
 		if(flying_cnt - (int32_t)txn->size < 0){
+			
 			pthread_mutex_unlock(&flying_cnt_lock);
 			continue;
 		}
@@ -121,18 +146,45 @@ void assign_vectored_req(vec_request *txn){
 			break;
 		}
 	}
+	gettimeofday(&end,NULL);
+	int stime = start.tv_sec*1000000 + start.tv_usec;
+	int etime = end.tv_sec*1000000 + end.tv_usec;
+	//printf("assigning took %d\n",etime-stime);
+}
+
+void assign_vectored_bgreq(vec_request *txn){
+	while(1){
+
+		pthread_mutex_lock(&flying_cnt_lock_bg);
+		if(flying_cnt_bg - (int32_t)txn->size < 0){
+			pthread_mutex_unlock(&flying_cnt_lock_bg);
+			continue;
+		}
+		else{
+			flying_cnt_bg-=txn->size;
+			if(flying_cnt_bg<0){
+				printf("abort!!!\n");
+				abort();
+			}
+			pthread_mutex_unlock(&flying_cnt_lock_bg);
+		}
+		
+		if(q_enqueue((void*)txn, mp.processors[0].req_bgq)){
+			break;
+		}
+	}
 }
 
 void release_each_req(request *req){
 	uint32_t tag_num=req->tag_num;
+	
 	pthread_mutex_lock(&flying_cnt_lock);
 	flying_cnt++;
-	if(flying_cnt > QDEPTH){
+	if(flying_cnt > QDEPTH*50){
 		printf("???\n");
 		abort();
 	}
 	pthread_mutex_unlock(&flying_cnt_lock);
-
 	tag_manager_free_tag(tm, tag_num);
 }
 
@@ -141,6 +193,16 @@ static uint32_t get_next_request(processor *pr, request** inf_req, vec_request *
 		return 1;
 	}
 	else if(((*vec_req)=(vec_request*)q_dequeue(pr->req_q))){
+		return 2;
+	}
+	return 0;
+}
+
+static uint32_t get_next_request_bgq(processor *pr, request** inf_req, vec_request **vec_req){
+	if(((*inf_req)=(request*)q_dequeue(pr->retry_bgq))){
+		return 1;
+	}
+	else if(((*vec_req)=(vec_request*)q_dequeue(pr->req_bgq))){
 		return 2;
 	}
 	return 0;
@@ -170,12 +232,13 @@ void *vectored_main(void *__input){
 		if(mp.stopflag)
 			break;
 		type=get_next_request(_this, &inf_req, &vec_req);
-		if(type==0){
+		if(type==0){//if get_next_request fails to find request,
 			continue;
 		}
 		else if(type==1){ //rtry
 			inf_req->tag_num=tag_manager_get_tag(tm);
 			inf_algorithm_caller(inf_req);	
+			
 		}else{
 			uint32_t size=vec_req->size;
 			if(size!=0){
@@ -204,9 +267,9 @@ void *vectored_main(void *__input){
 				}
 				req->tag_num=tag_manager_get_tag(tm);
 				inf_algorithm_caller(req);
+				
 			}
 		}
-
 	}
 	return NULL;
 }
@@ -260,15 +323,28 @@ void* inf_main(void* arg){
 	min = -1;
 	avg = -1;
 	int bench_idx = received->bench_idx;
-	int chip_num = received->chip_num;
-	int* chip_idx = (int*)malloc(sizeof(int)*chip_num);
+
+	struct timeval rt_start;
+	struct timeval rt_end;
+	uint32_t req_start;
+	uint32_t deadline;
+	uint32_t gc_deadline;
+	uint32_t tbs_dl;
+	int chip_num;
+	int* chip_idx;
+
+	//decide chip direction.	
+	chip_num = received->chip_num;
+	chip_idx = (int*)malloc(sizeof(int)*chip_num);
 	for(int i=0;i<chip_num;i++){
 		chip_idx[i] = received->chip_idx[i];
 	}
-	struct timeval rt_start;
-	struct timeval rt_end;
-	uint32_t deadline;
-	uint32_t gc_deadline;
+
+	//printing cluster infos
+
+	if(received->type == TBS)
+		gettimeofday(&(_g_tbs_start),NULL);
+	
 	while(1){
 		//inf_make_req must be done in periodic manner.
 		
@@ -284,12 +360,69 @@ void* inf_main(void* arg){
 			printf("bench idx %d entered break line.\n",bench_idx);
 			break;
 		}
-		//calculate the deadline and pass to vectore request
-		
-		deadline = rt_start.tv_sec * 1000000 + rt_start.tv_usec + received->period;
-		gc_deadline = rt_start.tv_sec * 1000000 + rt_start.tv_usec + received->gc_threshold * received->period;
-		
-		inf_vector_make_req(value, bench_transaction_end_req, mark, deadline, gc_deadline, chip_num, chip_idx);
+
+		//calculate the deadline and target chip.(RT, TBS version exists)
+		int cur_w_op = op_num;
+		int cur_r_op = 0; //currently we only test write-only TBS.
+		int exec_op;
+		int exec_gc; 
+		uint32_t start;
+		uint32_t dl = UINT32_MAX;
+		int target_cluster = -1;
+		req_start = rt_start.tv_sec * 1000000 + rt_start.tv_usec;
+		if(received->type == RT){
+			deadline = rt_start.tv_sec * 1000000 + rt_start.tv_usec + received->period;
+			gc_deadline = rt_start.tv_sec * 1000000 + rt_start.tv_usec + received->gc_threshold * received->period;
+		}
+		else if((received->type == TBS) && (cur_num == 0)){//job inited, and TBS job updates tbs dl.
+			//select possible cluster.
+			for(int i=0;i<cluster_num;i++){
+				exec_op = W_LTN*cur_w_op + R_LTN*cur_r_op + D_LTN*(WAY-(cluster_def[i].chip_num % WAY))*(cur_w_op+cur_r_op);
+				exec_gc = ((cluster_stat->cluster_cur_wnum[i]+ cur_w_op)/(reclaim_page*cluster_def[i].chip_num))*GC_LTN;
+				float dl_f;
+				uint32_t temp_dl;
+				float rela_dl = (exec_op+exec_gc)* (1.0/cluster_def[i].cluster_util_left);
+				if(cluster_stat->tbs_deadlines[i] > (uint32_t)(rt_start.tv_sec * 1000000 + rt_start.tv_usec)){
+					start = cluster_stat->tbs_deadlines[i];
+					temp_dl = start + (int)rela_dl;
+				}
+				else{
+					start = rt_start.tv_sec * 1000000 + rt_start.tv_usec;
+					temp_dl = start + (int)rela_dl;
+				}
+				printf("[candidate %d]start : %u, deadline : %u, util : %f\n",i,start,temp_dl,(float)(exec_op+exec_gc)/(float)(temp_dl - start));
+				if(temp_dl < dl){
+					dl = temp_dl;
+					target_cluster = i;
+				}
+			}
+			printf("!!!target cluster : %d, dl : %u, exec : %u, util : %f\n",target_cluster,dl,exec_op+exec_gc,(float)(exec_op+exec_gc)/(float)(dl-req_start));
+			chip_num = cluster_def[target_cluster].chip_num;
+			chip_idx = cluster_def[target_cluster].chip_idx;
+			cluster_stat->tbs_deadlines[target_cluster] = dl;
+			tbs_dl = dl;
+			//accum write.
+			cluster_stat->cluster_cur_wnum[target_cluster] = 
+			(cluster_stat->cluster_cur_wnum[target_cluster]+cur_w_op) % (reclaim_page*cluster_def[target_cluster].chip_num);
+			//!selected possible cluster.
+		}
+		else if(received->type == BG){
+			deadline = UINT32_MAX;
+			gc_deadline = UINT32_MAX - 10;	
+		}
+		if(received->type == RT)
+			inf_vector_make_req(value, bench_transaction_end_req, mark, deadline, gc_deadline, chip_num, chip_idx, RT, notGC,req_start);
+		else if(received->type == TBS){
+			if((cur_num == 0) && (exec_gc != 0))
+				inf_vector_make_req(value, bench_transaction_end_req, mark, tbs_dl, tbs_dl, chip_num, chip_idx, TBS, doGC,req_start);
+			else
+				inf_vector_make_req(value, bench_transaction_end_req, mark, tbs_dl, tbs_dl, chip_num, chip_idx, TBS, notGC,req_start);
+			//printf("[TBS]dl is %u\n",tbs_dl);
+		}
+		else if(received->type == BG){
+			inf_vector_make_req(value, bench_transaction_end_req, mark, deadline, gc_deadline, chip_num, chip_idx, BG, notGC,req_start);
+		}
+		//tbs_dl must be kept for every requests in single job.
 		gettimeofday(&rt_end,NULL);
 		//!interface body
 		

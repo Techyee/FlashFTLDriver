@@ -33,13 +33,14 @@ void *new_latency_main(void *__input);
 void *pipe_main(void *arg);
 void* posix_make_copyback(uint32_t ppa, uint32_t ppa2, uint32_t size, bool async,algo_req * const req);
 void* posix_copyback(uint32_t ppa, uint32_t ppa2, uint32_t size, bool async,algo_req * const req);
-void* posix_make_req_trim(uint32_t ppa, bool async, uint32_t gc_deadline, int bench_idx);
+void* posix_make_req_trim(uint32_t ppa, bool async, uint32_t gc_deadline, int bench_idx, int IOtype);
 
 typedef struct posix_request {
 	void * hptr;
 	uint32_t deadline;
 	uint32_t trim_mark;
 	uint8_t bench_idx;
+	uint32_t start;
 	struct timeval algo_init_t;
 	struct timeval l_init_t;
 	struct timeval dev_init_t;
@@ -56,6 +57,7 @@ typedef struct posix_request {
 	algo_req *upper_req;
 	bool isAsync;
 	uint32_t size;
+	int IOtype;
 }posix_request;
 
 typedef struct mem_seg {

@@ -247,6 +247,9 @@ __chip* seq_get_chip (struct blockmanager* bm, bool isreserve){
 		//q_enqueue((void*)(res->reserved_blocks[i]),&res->rsv_block_queue);
 		printf("dequeued block num is %d\n",res->reserved_blocks[i]->block_num);
 	}
+	//for(int i=NUM_RSV;i<BPC;i++){
+	//mh_insert_append(res->free_block_maxheap,(void*)res->blocks[i]);
+	//}
 	
 	res->now = 0;
 	res->max = BPC;
@@ -369,7 +372,7 @@ int seq_unpopulate_bit (struct blockmanager* bm, uint32_t ppa){
 	seg->total_invalid_number++;
 */	
 	if(b->invalid_number > _PPB * L2PGAP){
-		printf("[abort]block num %d, invalid %d\n",b->block_num, b->invalid_number);
+	//	printf("[abort]block num %d, invalid %d\n",b->block_num, b->invalid_number);
 	}
 	return res;
 }
@@ -451,14 +454,16 @@ int seq_get_page_num_pinned(struct blockmanager* bm, __chip *c, int mark, bool i
 	if(!isreserve){
 		if((b->now == _PPB) || (n[mark] == NULL)) { //cur block full or init.
 			n[mark] = (__block*)q_dequeue(c->free_block_queue);
+			//printf("[chip %d]current free_queue_blocks : %d\n",mark,c->free_block_queue->size);
 			if(n[mark] == NULL){//cannot reclaim (chip full)
-				printf("[bench %d] chip is full\n",mark);
+				printf("[chip %d] chip is full\n",mark);
 				n[mark] = NULL;
 				return -1;
 			}
 			else{//if reclaimed, 
 				if(b->now == _PPB){//if cur block is full block,
 					mh_insert_append(c->free_block_maxheap,(void*)b);
+					//printf("[chip %d]cur maxheap size is %d\n",mark,c->free_block_maxheap->size);
 				}
 			}
 

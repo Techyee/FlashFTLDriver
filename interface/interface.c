@@ -353,7 +353,7 @@ void inf_init(int apps_flag, int total_num,int argc, char **argv){
     measure_init(&infendTime);
 #endif
 
-	tm=tag_manager_init(QDEPTH);
+	tm=tag_manager_init(QDEPTH*50);
 	mp.processors=(processor*)malloc(sizeof(processor)*1);
 	for(int i=0; i<1; i++){
 		processor *t=&mp.processors[i];
@@ -362,8 +362,10 @@ void inf_init(int apps_flag, int total_num,int argc, char **argv){
 		t->master=&mp;
 
 
-		q_init(&t->req_q,QSIZE*10);
+		q_init(&t->req_q,QSIZE*50);
 		q_init(&t->retry_q,1);
+		q_init(&t->req_bgq,QSIZE*20);
+		q_init(&t->retry_bgq,1);
 
 #ifdef interface_vector
 		pthread_create(&t->t_id,NULL,&vectored_main, NULL);

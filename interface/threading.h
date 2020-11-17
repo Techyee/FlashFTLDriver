@@ -11,6 +11,8 @@ typedef struct processor{
 	master_processor *master;
 	queue *req_q; //for write req in priority
 	queue *retry_q;
+	queue *req_bgq;
+	queue *retry_bgq;
 #ifdef interface_pq
 	queue *req_rq; //for read req
 	Redblack qmanager;

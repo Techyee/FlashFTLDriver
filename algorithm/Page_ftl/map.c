@@ -49,21 +49,24 @@ uint32_t page_map_assign(KEYT* lba){
 	return res;
 }
 
-uint32_t page_map_assign_pinned(KEYT* lba, int mark, int chip_num, int* chip_idx, int gc_deadline){
+uint32_t page_map_assign_pinned(KEYT *lba, int mark, int chip_num, int* chip_idx, int gc_deadline, int IOtype, int checkGC){
 	//pinned version for page_map_assign(nearly same)
 	uint32_t res = 0;
 	//use get_ppa_pinned to differentiate page allocation.
-	res = get_ppa_pinned(lba, mark, chip_num, chip_idx, gc_deadline);
+	res = get_ppa_pinned(lba, mark, chip_num, chip_idx, gc_deadline, IOtype,checkGC);
 	pm_body *p = (pm_body*)page_ftl.algo_body;
 	for(uint32_t i=0; i<L2PGAP; i++){
 		KEYT t_lba=lba[i];
 		if(p->mapping[t_lba]!=UINT_MAX){
 			/*when mapping was updated, the old one is checked as a inavlid*/
 			invalidate_ppa(p->mapping[t_lba]);
+			//printf("invalidated old ppa %u\n",p->mapping[t_lba]);
 		}
 		/*mapping update*/
 		p->mapping[t_lba]=res*L2PGAP+i;
 		validate_ppa(res, lba);
+		//printf("validated %u",res);
+
 		//printf("map set : %u->%u\n",t_lba,p->mapping[t_lba]);
 		DPRINTF("\tmap set : %u->%u\n", t_lba, p->mapping[t_lba]);
 	}
@@ -118,13 +121,17 @@ uint32_t page_map_gc_update(KEYT *lba, uint32_t idx){
 	return res;
 }
 //old ver
-uint32_t page_map_gc_update_chip(KEYT *lba, uint32_t idx, int chip_num){
+uint32_t page_map_gc_update_chip(KEYT *lba, uint32_t idx, int mark, int chip_num, int gc_init){
 	//while updating a page_map, pickup a reserved block
 	//!!hardcoded for (PAGESIZE == LPAGESIZE) case!!
 	uint32_t res = 0;
+	pm_body *p=(pm_body*)page_ftl.algo_body;
 	KEYT t_lba = lba[0];
-	pm_body *p = (pm_body*)page_ftl.algo_body;
-	res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[chip_num],chip_num,true);
+	if(p->mapping[t_lba]!=UINT_MAX){
+		/*when mapping was updated, the old one is checked as a inavlid*/
+		invalidate_ppa(p->mapping[t_lba]);
+	}
+	res = page_ftl.bm->get_page_num_gc(page_ftl.bm,p->chip_actives_arr[chip_num],mark,chip_num,gc_init);
 	p->mapping[t_lba] = res*L2PGAP;
 	return res;
 
