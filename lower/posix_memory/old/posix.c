@@ -153,7 +153,7 @@ uint32_t posix_create(lower_info *li, blockmanager *b){
 	li->PPB=_PPB;
 	li->PPS=_PPS;
 	li->TS=TOTALSIZE;
-	lower_flying=cl_init(QDEPTH*2,true);
+	lower_flying=cl_init(QDEPTH*50,true);
 
 	printf("!!! posix memory ASYNC: %d!!!\n", ASYNC);
 	li->write_op=li->read_op=li->trim_op=0;

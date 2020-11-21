@@ -87,6 +87,8 @@ void send_req_cb(uint32_t ppa, uint32_t ppa2, uint8_t type, KEYT* lbas, int gc_d
 	memcpy(&(my_req->GCCB_lbas),lbas,sizeof(KEYT));
 	my_req->end_req=page_gc_end_req;
 	my_req->bench_idx = bench_idx;
+	//if (my_req->IOtype == BG)
+		//printf("[BG]cpb enqueued\n");
 	//assing pseudo deadline.
 	//my_req->deadline = pseudo_dl[my_req->mark];
 	//pseudo_dl[my_req->mark]++;
@@ -468,8 +470,7 @@ ppa_t get_ppa_pinned(KEYT *lbas, int mark, int chip_num, int* chip_idx, int gc_d
 
 	//deciding background gc.(operate = 50%, therefore, page_num = _PPB/2)
 	int bgc_threshold = (reclaim_page)*task_chip_num/task_wnum;
-	int bgc_period = bgc_threshold * task_wnum;
-	//printf("[bench %d]bgc_threshold = %d,bgc_period = %d\n",mark,bgc_threshold,bgc_period);
+	int bgc_period = bgc_threshold*task_wnum;
 	if(bgc_threshold == 0)
 		bgc_period = reclaim_page*task_chip_num;
 	if(IOtype == BG)
@@ -479,12 +480,18 @@ ppa_t get_ppa_pinned(KEYT *lbas, int mark, int chip_num, int* chip_idx, int gc_d
 		bgc = false;
 retry:
 	//selection of target chip. use _g_cur_targ[mark] to track current target.
+	//printf("selecting...");
+	//FIXME::chip selection does not work well for TBS.
 	target_idx = _g_cur_targ[mark];
+	if(target_idx+1 > chip_num)
+		target_idx = 0;
 	_g_cur_targ[mark] = (_g_cur_targ[mark]+1) % chip_num;
 	target_chip = chip_idx[target_idx];
+	//if (mark == 5){
+	//	printf("[mark %d]target chip is %d, %d\n",mark, target_idx, target_chip);
+	//}
 	//!end of selection.
 	res = page_ftl.bm->get_page_num_pinned(page_ftl.bm,p->chip_actives_arr[target_chip],target_chip,false);
-	
 
 #ifdef SCHEDGC
 	//check if it's time to initialize BGC.
@@ -526,10 +533,11 @@ retry:
 	}
 	else if(IOtype == BG){
 		if((BGC_INIT == true) && (_g_cur_wnum_task[mark] % (bgc_period) == 0) && (bgc == true)){
-			printf("scheduling GC of BGC\n");
+			//printf("of BGC\n");
 			for(int i=0;i<chip_num;i++){
 				int targ = chip_idx[i];
 				chip_gc_cb(mark,targ,gc_deadline,BG);
+				printf("BGC gc deadline is %u",gc_deadline);
 			}
 		}
 		if(res == UINT32_MAX){

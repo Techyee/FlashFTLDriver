@@ -84,14 +84,21 @@
 #define _RNOS (REALSIZE/(_PPS*PAGESIZE))//real number of segment
 
 //defs for chip-level allocation.
+#define _NOSP (SHOWINGSIZE/PAGESIZE)
+#define _NOSB (_NOSP/_PPB)
 #define CHN 4
 #define WAY 4
 #define _NOC (CHN*WAY)
 #define BPC (_NOB/_NOC)
+#define SBPC (_NOSB/_NOC)
+#define SPPC (SBPC *_PPB)
 #define RT 1
 #define TBS 2
 #define DUMMY 3
 #define BG 4
+
+#define USER_IO 1
+#define GC_IO 2
 
 //defs for I/O latency model
 #define W_LTN 500
@@ -195,7 +202,7 @@ static inline bool KEYVALCHECK(KEYT a){
 //#define BUSE_ASYNC 0
 
 //mydefinition
-#define NUM_RSV 8
+#define NUM_RSV 6
 
 #ifndef __GNUG__
 typedef enum{false,true} bool;

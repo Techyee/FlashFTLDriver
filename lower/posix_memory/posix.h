@@ -58,6 +58,7 @@ typedef struct posix_request {
 	bool isAsync;
 	uint32_t size;
 	int IOtype;
+	int reqtype;
 }posix_request;
 
 typedef struct mem_seg {

@@ -98,6 +98,7 @@ uint32_t page_read(request *const req){
 			//req->type=FS_NOTFOUND_T;
 			//req->end_req(req);
 			req->value->ppa = req->key * 2; //assume ppa == key(ppa override!!)
+			//printf("read target %d\n",req->value->ppa/(_PPB*BPC));
 			send_user_req(req, DATAR, req->value->ppa/L2PGAP, req->value, deadline);
 		}
 		else{

@@ -77,7 +77,7 @@ uint32_t inf_vector_make_req(char *buf, void* (*end_req) (void*), uint32_t mark,
 		temp->seq=seq++;
 		temp->alloc_chip_num = chip_num;
 		temp->alloc_chip = (int*)malloc(sizeof(int)*chip_num);
-		//for TBS
+		//for TBS & BG
 		temp->IOtype = IOtype;
 		temp->do_gc = checkGC;
 		for(int j=0;j<chip_num;j++){
@@ -340,7 +340,7 @@ void* inf_main(void* arg){
 		chip_idx[i] = received->chip_idx[i];
 	}
 
-	//printing cluster infos
+	//set cluster infos(for TBS)
 
 	if(received->type == TBS)
 		gettimeofday(&(_g_tbs_start),NULL);
@@ -370,11 +370,12 @@ void* inf_main(void* arg){
 		uint32_t dl = UINT32_MAX;
 		int target_cluster = -1;
 		req_start = rt_start.tv_sec * 1000000 + rt_start.tv_usec;
-		if(received->type == RT){
+		if(received->type == RT || received->type == DUMMY){
 			deadline = rt_start.tv_sec * 1000000 + rt_start.tv_usec + received->period;
 			gc_deadline = rt_start.tv_sec * 1000000 + rt_start.tv_usec + received->gc_threshold * received->period;
 		}
 		else if((received->type == TBS) && (cur_num == 0)){//job inited, and TBS job updates tbs dl.
+			gettimeofday(&rt_start,NULL);
 			//select possible cluster.
 			for(int i=0;i<cluster_num;i++){
 				exec_op = W_LTN*cur_w_op + R_LTN*cur_r_op + D_LTN*(WAY-(cluster_def[i].chip_num % WAY))*(cur_w_op+cur_r_op);
@@ -390,17 +391,19 @@ void* inf_main(void* arg){
 					start = rt_start.tv_sec * 1000000 + rt_start.tv_usec;
 					temp_dl = start + (int)rela_dl;
 				}
-				printf("[candidate %d]start : %u, deadline : %u, util : %f\n",i,start,temp_dl,(float)(exec_op+exec_gc)/(float)(temp_dl - start));
 				if(temp_dl < dl){
+					req_start = start;
 					dl = temp_dl;
 					target_cluster = i;
 				}
 			}
-			printf("!!!target cluster : %d, dl : %u, exec : %u, util : %f\n",target_cluster,dl,exec_op+exec_gc,(float)(exec_op+exec_gc)/(float)(dl-req_start));
+			//printf("tbs_reladl : %d\n",dl - req_start);
 			chip_num = cluster_def[target_cluster].chip_num;
 			chip_idx = cluster_def[target_cluster].chip_idx;
 			cluster_stat->tbs_deadlines[target_cluster] = dl;
 			tbs_dl = dl;
+			printf("target_cluster : %d, chip_num : %d, idx : %d\n",target_cluster,
+			cluster_def[target_cluster].chip_num,cluster_def[target_cluster].chip_idx[0]);
 			//accum write.
 			cluster_stat->cluster_cur_wnum[target_cluster] = 
 			(cluster_stat->cluster_cur_wnum[target_cluster]+cur_w_op) % (reclaim_page*cluster_def[target_cluster].chip_num);
@@ -408,10 +411,14 @@ void* inf_main(void* arg){
 		}
 		else if(received->type == BG){
 			deadline = UINT32_MAX;
-			gc_deadline = UINT32_MAX - 10;	
+			gc_deadline = UINT32_MAX - 10;
 		}
-		if(received->type == RT)
+
+		if(received->type == RT){
 			inf_vector_make_req(value, bench_transaction_end_req, mark, deadline, gc_deadline, chip_num, chip_idx, RT, notGC,req_start);
+		} else if(received->type == DUMMY){
+			inf_vector_make_req(value, bench_transaction_end_req, mark, deadline, gc_deadline, chip_num, chip_idx, DUMMY, notGC,req_start);
+		}	
 		else if(received->type == TBS){
 			if((cur_num == 0) && (exec_gc != 0))
 				inf_vector_make_req(value, bench_transaction_end_req, mark, tbs_dl, tbs_dl, chip_num, chip_idx, TBS, doGC,req_start);

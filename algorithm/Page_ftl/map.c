@@ -57,6 +57,14 @@ uint32_t page_map_assign_pinned(KEYT *lba, int mark, int chip_num, int* chip_idx
 	pm_body *p = (pm_body*)page_ftl.algo_body;
 	for(uint32_t i=0; i<L2PGAP; i++){
 		KEYT t_lba=lba[i];
+		if(IOtype == DUMMY){
+			uint32_t b = res / (_PPB*BPC);
+			uint32_t off = res % (_PPB*BPC);
+			uint32_t logi = b*SPPC + off;
+			t_lba = logi;//dummy task directly maps physical IO = logical IO.
+			//printf("dummyIO! chip : %d, offset : %d => %d, %d\n",b,off,logi,res);
+			
+		}
 		if(p->mapping[t_lba]!=UINT_MAX){
 			/*when mapping was updated, the old one is checked as a inavlid*/
 			invalidate_ppa(p->mapping[t_lba]);
